@@ -74,13 +74,17 @@ Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot
 
 ### Why Not Existing Tools
 
-| Tool | Why Not |
-|---|---|
-| **[Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1)** | Trained on modern notation (5-line staves, round noteheads). Outputs `**kern`. Architecture is reusable, weights are not. |
-| **[Audiveris](https://github.com/Audiveris/audiveris)** | Modern printed scores only. Java. No historical manuscript support. |
-| **[OMMR4all](https://github.com/OMMR4all)** | Closest match -- designed for historical manuscripts. But focused on mensural (white) notation, not square notation. Active research project, not production-ready. |
-| **[Rodan](https://github.com/DDMAL/Rodan)** | McGill SIMSSA project. Legacy framework, limited maintenance. Gamera-based, not deep learning. |
-| **[Kraken](https://github.com/mittagessen/kraken)** | In lpacleaner for text OCR. Could be trained for neume recognition but not designed for music structure. |
+| Tool | Params | Why Not |
+|---|---|---|
+| **[Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1)** | 59M | Trained on modern notation (5-line staves, round noteheads). Outputs `**kern`. **Architecture is reusable, weights are not** -- our model uses the same ConvNeXt-V2 + Transformer pattern but trained from scratch on GABC. |
+| **[LEGATO](https://huggingface.co/guangyangmusic/legato)** | 943M frozen + 100M trainable | Based on Llama 3.2 11B Vision with a frozen encoder. Cannot fine-tune the vision encoder on chant without unfreezing 11B parameters (impractical). Requires ~20GB+ VRAM for inference -- won't run on Intel Arc or export to OpenVINO. Outputs ABC notation (modern music format with time/key signatures). The frozen encoder has never seen square notation and can't learn it. |
+| **[MisClef](https://huggingface.co/shmrrhm/MisClef)** | UNet | Not end-to-end OMR -- it's a notehead detector that finds note positions via UNet segmentation. Doesn't produce symbolic notation at all. Would need a separate classification and sequencing pipeline on top, making it a classical pipeline with all the cascading-error problems. Modern noteheads only. |
+| **[Audiveris](https://github.com/Audiveris/audiveris)** | N/A | Modern printed scores only. Java. No historical manuscript support. |
+| **[OMMR4all](https://github.com/OMMR4all)** | Various | Closest match -- designed for historical manuscripts. But focused on mensural (white) notation, not square notation. Active research project, not production-ready. |
+| **[Rodan](https://github.com/DDMAL/Rodan)** | N/A | McGill SIMSSA project. Legacy framework, limited maintenance. Gamera-based, not deep learning. |
+| **[Kraken](https://github.com/mittagessen/kraken)** | N/A | In lpacleaner for text OCR. Could be trained for neume recognition but not designed for music structure. |
+
+**Key insight**: the ConvNeXt-V2 encoder doesn't inherently "know" about 5-line staves -- it's pretrained on ImageNet (natural images). During OMR training it learns whatever notation you feed it. Transcoda proved this architecture works at 59M params for modern notation; we train the same architecture on square notation with GABC output. No dependency on any of these projects' code or weights.
 
 ### Encoder Comparison
 
