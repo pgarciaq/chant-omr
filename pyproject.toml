@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chant-omr"
+version = "0.1.0"
+description = "Train an end-to-end vision-encoder-decoder for Gregorian chant Optical Music Recognition"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "lightning>=2.4",
+    "torchmetrics>=1.1",
+    "transformers>=4.40",
+    "safetensors>=0.4",
+    "timm>=1.0",
+    "tokenizers>=0.19",
+    "Pillow>=10.0",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+    "requests>=2.31",
+    "lxml>=5.0",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+export = [
+    "openvino>=2024.0",
+    "onnx>=1.15",
+    "onnxruntime>=1.17",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+chant-omr = "chant_omr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]

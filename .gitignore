@@ -1,0 +1,40 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.tox/
+.pytest_cache/
+.coverage
+htmlcov/
+*.so
+.venv/
+venv/
+
+# Training artifacts
+checkpoints/
+logs/
+wandb/
+lightning_logs/
+outputs/
+
+# Data (large, downloaded separately)
+data/gregobase/
+data/rendered/
+data/augmented/
+
+# Models (large, uploaded to HuggingFace)
+models/*.safetensors
+models/*.ckpt
+models/*.onnx
+models/*.bin
+models/*.xml
+
+# IDE
+.cursor/
+.claude/
+.shiftlog/
+.vscode/
+.idea/
