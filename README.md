@@ -84,6 +84,30 @@ Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot
 | **[Rodan](https://github.com/DDMAL/Rodan)** | N/A | McGill SIMSSA project. Legacy framework, limited maintenance. Gamera-based, not deep learning. |
 | **[Kraken](https://github.com/mittagessen/kraken)** | N/A | In lpacleaner for text OCR. Could be trained for neume recognition but not designed for music structure. |
 
+### Why Not General-Purpose VLMs (Qwen, GLM, etc.)
+
+We evaluated whether fine-tuning a "lightweight" general-purpose vision-language model ([Qwen](https://huggingface.co/Qwen), [Z.ai/GLM](https://huggingface.co/zai-org), etc.) would be a better approach than training a specialist OMR model. It isn't.
+
+| | General VLM (Qwen, GLM) | Specialist OMR (our approach) |
+|---|---|---|
+| **Smallest variant** | ~800M params (Qwen3-0.8B) | 59M params |
+| **Inference VRAM** | 2-8 GB for "small" models | < 500 MB |
+| **What it learns** | Language, reasoning, world knowledge, vision | One task: image → notation |
+| **Fine-tuning** | LoRA/QLoRA on frozen backbone | Full training from ImageNet init |
+| **OpenVINO export** | Difficult (complex attention, KV cache, dynamic shapes) | Straightforward |
+| **Runs on Intel Arc** | Painfully slow | Real-time per page |
+
+**The experiment has already been done.** LEGATO used this exact approach (Llama 3.2 11B Vision backbone, 943M total params) and Transcoda's 59M specialist beat it decisively:
+
+| Model | Approach | Params | OMR-NED synth | OMR-NED real scans |
+|---|---|---|---|---|
+| LEGATO | VLM-based (frozen Llama encoder) | 943M | 43.9% | 86.7% |
+| Transcoda | Specialist (ConvNeXt-V2 + Transformer) | 59M | 18.5% | 64.0% |
+
+The specialist is 16x smaller, 2x more accurate on synthetic data, and the gap widens on real scans. The VLM's general "knowledge" doesn't help with structured symbol recognition -- it wastes capacity on language understanding that OMR doesn't need.
+
+VLMs would make sense for a different task (e.g., a chant assistant that answers questions about notation in natural language), but not for OMR where you need precise, structured output.
+
 **Key insight**: the ConvNeXt-V2 encoder doesn't inherently "know" about 5-line staves -- it's pretrained on ImageNet (natural images). During OMR training it learns whatever notation you feed it. Transcoda proved this architecture works at 59M params for modern notation; we train the same architecture on square notation with GABC output. No dependency on any of these projects' code or weights.
 
 ### Encoder Comparison
