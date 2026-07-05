@@ -5,7 +5,7 @@ the trained model on real historical manuscripts.
 
 ## Creating benchmark data
 
-1. Process book photographs through lpacleaner (Stages 0-7 minimum) to get
+1. Process book photographs through ghh (Stages 0-7 minimum) to get
    clean, dewarped page images.
 
 2. For each page, manually transcribe the Gregorian chant into GABC notation.
@@ -16,7 +16,7 @@ the trained model on real historical manuscripts.
    ```
    benchmarks/
      lpa1/
-       page_001.png     # dewarped page image from lpacleaner
+       page_001.png     # dewarped page image from ghh
        page_001.gabc    # manual GABC transcription
        page_002.png
        page_002.gabc

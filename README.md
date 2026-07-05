@@ -2,13 +2,13 @@
 
 End-to-end Optical Music Recognition for Gregorian chant square notation. A vision-encoder-decoder model that converts photographs of historical chant manuscripts into [GABC](https://gregorio-project.github.io/gabc/) notation.
 
-Part of the [lpacleaner](https://github.com/pgarciaq/lpacleaner) ecosystem. This repository handles model training; the trained model is consumed by lpacleaner for inference.
+Part of the [Guido's Helping Hand (ghh)](https://github.com/pgarciaq/ghh) ecosystem. This repository handles model training; the trained model is consumed by ghh for inference.
 
 ## Why a Separate Project
 
 OMR model training has fundamentally different requirements from the image processing pipeline:
 
-| | lpacleaner | chant-omr |
+| | ghh | chant-omr |
 |---|---|---|
 | Purpose | Process photos → searchable PDF | Train OMR model |
 | Runs on | User's laptop | Cloud GPU (A100/H100) |
@@ -16,7 +16,7 @@ OMR model training has fundamentally different requirements from the image proce
 | Output | PDF files | Model weights (.safetensors) |
 | Users | Anyone digitizing chant books | Model trainer (you) |
 
-Once trained, the model is exported to OpenVINO IR and consumed by lpacleaner's Stage 13 on any Intel hardware, without needing PyTorch at all.
+Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 13 on any Intel hardware, without needing PyTorch at all.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot
 | **[Audiveris](https://github.com/Audiveris/audiveris)** | N/A | Modern printed scores only. Java. No historical manuscript support. |
 | **[OMMR4all](https://github.com/OMMR4all)** | Various | Closest match -- designed for historical manuscripts. But focused on mensural (white) notation, not square notation. Active research project, not production-ready. |
 | **[Rodan](https://github.com/DDMAL/Rodan)** | N/A | McGill SIMSSA project. Legacy framework, limited maintenance. Gamera-based, not deep learning. |
-| **[Kraken](https://github.com/mittagessen/kraken)** | N/A | In lpacleaner for text OCR. Could be trained for neume recognition but not designed for music structure. |
+| **[Kraken](https://github.com/mittagessen/kraken)** | N/A | In ghh for text OCR. Could be trained for neume recognition but not designed for music structure. |
 
 ### Why Not General-Purpose VLMs (Qwen, GLM, etc.)
 
@@ -237,13 +237,13 @@ Following Transcoda's approach:
 
 ## Inference & Deployment
 
-### Export for lpacleaner
+### Export for ghh
 
 ```bash
 # Export to OpenVINO IR (for Intel Arc GPU/NPU inference)
 python scripts/export_openvino.py --checkpoint checkpoints/best.ckpt --output models/
 
-# The .xml and .bin files go into lpacleaner's model directory
+# The .xml and .bin files go into ghh's model directory
 ```
 
 ### Upload to HuggingFace
@@ -253,16 +253,16 @@ python scripts/export_openvino.py --checkpoint checkpoints/best.ckpt --output mo
 huggingface-cli upload pgarciaq/chant-omr models/ --repo-type model
 ```
 
-### Use from lpacleaner
+### Use from ghh
 
 Once the model is trained and published:
 
 ```bash
-pip install lpacleaner[omr]
-lpacleaner omr /path/to/processed/book --model pgarciaq/chant-omr
+pip install ghh[omr]
+ghh omr /path/to/processed/book --model pgarciaq/chant-omr
 ```
 
-lpacleaner downloads the model, runs inference via OpenVINO on the user's Intel hardware, and writes GABC files alongside the PDF.
+ghh downloads the model, runs inference via OpenVINO on the user's Intel hardware, and writes GABC files alongside the PDF.
 
 ## Project Structure
 

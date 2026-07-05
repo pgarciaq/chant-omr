@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export trained model to OpenVINO IR for deployment in lpacleaner.
+"""Export trained model to OpenVINO IR for deployment in ghh.
 
 Usage:
     python scripts/export_openvino.py --checkpoint checkpoints/best.ckpt --output models/

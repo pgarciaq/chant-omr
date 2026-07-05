@@ -1,7 +1,7 @@
 """Export trained models for deployment.
 
 Export targets:
-    - OpenVINO IR: for lpacleaner on Intel Arc GPU/NPU
+    - OpenVINO IR: for ghh on Intel Arc GPU/NPU
     - ONNX: portable inference
     - Safetensors: for HuggingFace distribution
 """
@@ -19,7 +19,7 @@ def export_openvino(
 ) -> Path:
     """Export model to OpenVINO IR format.
 
-    The exported model can be loaded by lpacleaner's Stage 13 for
+    The exported model can be loaded by ghh's Stage 13 for
     inference on Intel Arc GPU or NPU.
 
     Args:
