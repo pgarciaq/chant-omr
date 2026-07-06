@@ -21,26 +21,20 @@ Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 1
 ## Architecture
 
 ```mermaid
-block-beta
-    columns 1
-    space
-    A["Score Image (1485×1050)"]
-    space
-    B["ConvNeXt-V2 encoder\npretrained ImageNet, fine-tuned\n47×33 patch grid, dim=768"]
-    space
-    C["2D sinusoidal + MLP project\npositional encoding, 768 → 512"]
-    space
-    D["Transformer decoder + RoPE\n8 layers, d=512, ff=1024, 8 heads\ncausal self-attn + cross-attn\nBPE vocabulary ~2000 tokens"]
-    space
-    E["GABC token sequence\n(c4) Ky(f)ri(gf)e(h) *()\ne(ixhi)lé(h)i(g)son.(f) (::)"]
+flowchart TD
+    A(["Score Image (1485×1050)"])
+    B["**ConvNeXt-V2 encoder**
+    pretrained ImageNet, fine-tuned
+    47×33 patch grid, dim=768"]
+    C["**2D sinusoidal + MLP project**
+    positional encoding, 768 → 512"]
+    D["**Transformer decoder + RoPE**
+    8 layers, d=512, ff=1024, 8 heads
+    causal self-attn + cross-attn
+    BPE vocabulary ~2000 tokens"]
+    E(["GABC token sequence"])
 
     A --> B --> C --> D --> E
-
-    style A fill:#4a90d9,color:#fff
-    style B fill:#2d5f8a,color:#fff
-    style C fill:#2d5f8a,color:#fff
-    style D fill:#2d5f8a,color:#fff
-    style E fill:#4a90d9,color:#fff
 ```
 
 Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1) (59M params for modern notation OMR), adapted for square notation:
