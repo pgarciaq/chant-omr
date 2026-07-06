@@ -32,7 +32,8 @@ flowchart TD
     8 layers, d=512, ff=1024, 8 heads
     causal self-attn + cross-attn
     BPE vocabulary ~2000 tokens"]
-    E(["GABC token sequence"])
+    E(["GABC token sequence
+    e.g. (c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f) (::)"])
 
     A --> B --> C --> D --> E
 ```
