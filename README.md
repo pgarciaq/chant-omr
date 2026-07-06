@@ -21,16 +21,26 @@ Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 1
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph ChantOMR["ChantOMR (50-100M params)"]
-        A["Score Image<br/>(1485×1050)"]
-        B["ConvNeXt-V2 (encoder)<br/><i>pretrained ImageNet, fine-tuned</i><br/>outputs: 47×33 patch grid, dim=768"]
-        C["2D sinusoidal + MLP project<br/><i>positional encoding on patch grid</i><br/>768 → 512 (2 layers)"]
-        D["Transformer decoder (with RoPE)<br/><i>8 layers, d=512, ff=1024, 8 heads</i><br/>causal self-attn + cross-attn to encoder<br/>BPE vocabulary ~2000 tokens"]
-        E["GABC token sequence<br/><code>(c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f) (::)</code>"]
+block-beta
+    columns 1
+    space
+    A["Score Image (1485×1050)"]
+    space
+    B["ConvNeXt-V2 encoder\npretrained ImageNet, fine-tuned\n47×33 patch grid, dim=768"]
+    space
+    C["2D sinusoidal + MLP project\npositional encoding, 768 → 512"]
+    space
+    D["Transformer decoder + RoPE\n8 layers, d=512, ff=1024, 8 heads\ncausal self-attn + cross-attn\nBPE vocabulary ~2000 tokens"]
+    space
+    E["GABC token sequence\n(c4) Ky(f)ri(gf)e(h) *()\ne(ixhi)lé(h)i(g)son.(f) (::)"]
 
-        A --> B --> C --> D --> E
-    end
+    A --> B --> C --> D --> E
+
+    style A fill:#4a90d9,color:#fff
+    style B fill:#2d5f8a,color:#fff
+    style C fill:#2d5f8a,color:#fff
+    style D fill:#2d5f8a,color:#fff
+    style E fill:#4a90d9,color:#fff
 ```
 
 Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1) (59M params for modern notation OMR), adapted for square notation:
