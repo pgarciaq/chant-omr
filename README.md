@@ -20,36 +20,17 @@ Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 1
 
 ## Architecture
 
-```
-                          ChantOMR (50-100M params)
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                                                                 │
-  │   Score Image (1485×1050)                                       │
-  │         │                                                       │
-  │         ▼                                                       │
-  │   ┌───────────────┐                                             │
-  │   │  ConvNeXt-V2   │  pretrained ImageNet, fine-tuned           │
-  │   │  (encoder)     │  outputs: 47×33 patch grid, dim=768        │
-  │   └───────┬───────┘                                             │
-  │           │                                                     │
-  │           ▼                                                     │
-  │   ┌───────────────┐                                             │
-  │   │  2D sinusoidal │  positional encoding on patch grid         │
-  │   │  + MLP project │  768 → 512 (2 layers)                     │
-  │   └───────┬───────┘                                             │
-  │           │                                                     │
-  │           ▼                                                     │
-  │   ┌───────────────┐                                             │
-  │   │  Transformer   │  8 layers, d=512, ff=1024, 8 heads        │
-  │   │  decoder       │  causal self-attn + cross-attn to encoder │
-  │   │  (with RoPE)   │  BPE vocabulary ~2000 tokens              │
-  │   └───────┬───────┘                                             │
-  │           │                                                     │
-  │           ▼                                                     │
-  │   GABC token sequence                                           │
-  │   (c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f) (::)      │
-  │                                                                 │
-  └─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph ChantOMR["ChantOMR (50-100M params)"]
+        A["Score Image<br/>(1485×1050)"]
+        B["ConvNeXt-V2 (encoder)<br/><i>pretrained ImageNet, fine-tuned</i><br/>outputs: 47×33 patch grid, dim=768"]
+        C["2D sinusoidal + MLP project<br/><i>positional encoding on patch grid</i><br/>768 → 512 (2 layers)"]
+        D["Transformer decoder (with RoPE)<br/><i>8 layers, d=512, ff=1024, 8 heads</i><br/>causal self-attn + cross-attn to encoder<br/>BPE vocabulary ~2000 tokens"]
+        E["GABC token sequence<br/><code>(c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f) (::)</code>"]
+
+        A --> B --> C --> D --> E
+    end
 ```
 
 Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1) (59M params for modern notation OMR), adapted for square notation:
@@ -127,20 +108,15 @@ Recommendation: start with **ConvNeXt-V2 Tiny** (matches Transcoda), then ablate
 
 No manual transcription is needed. Training data is generated synthetically:
 
-```
-  GregoBase (~10,000 GABC files)
-        │
-        ▼
-  Gregorio + LuaLaTeX rendering
-        │
-        ▼
-  Clean score images (PNG)          ← paired with original GABC
-        │
-        ▼
-  Domain augmentation               ← make clean renders look like real photos
-        │
-        ▼
-  Training pairs: (augmented image, GABC)
+```mermaid
+flowchart TD
+    A["GregoBase (~10,000 GABC files)"]
+    B["Gregorio + LuaLaTeX rendering"]
+    C["Clean score images (PNG)<br/><i>paired with original GABC</i>"]
+    D["Domain augmentation<br/><i>make clean renders look like real photos</i>"]
+    E["Training pairs: (augmented image, GABC)"]
+
+    A --> B --> C --> D --> E
 ```
 
 ### Step 1: Download GABC corpus
