@@ -302,7 +302,11 @@ skip category counters (NABC, empty body, compile).
 **CLI (v0):**
 
 **Performance:** each score runs a full LuaLaTeX + Gregorio autocompile (~10–15 s/score
-sequential). See [#31](https://github.com/pgarciaq/chant-omr/issues/31) for parallel workers.
+sequential per worker). Parallel auto workers ([#31](https://github.com/pgarciaq/chant-omr/issues/31))
+improve **throughput**, not single-job compile time — first batch still pays cold-start cost
+(LuaLaTeX + font cache). Observed on a 22-core host with auto workers and warm
+``data/rendered/.texcache/``: **~1.2 s/score effective** bulk throughput (vs ~13 s/score
+sequential before #31).
 
 ```bash
 chant-omr render                              # auto workers (min(cpu, 8))
