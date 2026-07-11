@@ -22,7 +22,7 @@ Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 1
 
 ```mermaid
 flowchart TD
-    A(["Score Image (1485×1050)"])
+    A(["Score Image (width 1050, variable height)"])
     B["**ConvNeXt-V2 encoder**
     pretrained ImageNet, fine-tuned
     47×33 patch grid, dim=768"]

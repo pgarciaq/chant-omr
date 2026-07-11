@@ -6,9 +6,9 @@ data:
   tokenizer_dir: data/tokenizer/
   train_split: 0.9
   val_split: 0.1
-  target_width: 1050
-  target_height: 1485
-  augment: true
+  target_width: 1050       # scale to this width; preserve aspect ratio
+  max_height: 1600         # cap height after scaling (no portrait letterbox)
+  augment: false           # enable after #30 augmentation ships
   num_workers: 4
 
 model:

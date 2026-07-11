@@ -27,7 +27,8 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
    downloads. Never brute-force scan GregoBase ID ranges.
 6. **Render consistency**: Match GregoBase's Gregorio stack; use
    [nomargin](https://gregorio-project.github.io/tips/nomargin.html) tight
-   crops for fixed-size model input (1050×1485).
+   crops. Resize to fixed **width** (1050 px) preserving aspect ratio — no
+   portrait letterboxing. See [§1.4 image sizing](#14-dataset--augmentation-chant_omrdatadasetpy-augmentationpy).
 7. **Deploy via OpenVINO**: Train in PyTorch; export OpenVINO IR for ghh
    inference on Intel Arc GPU/NPU without PyTorch at runtime.
 
@@ -40,7 +41,9 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
 | 1.2 | Gregorio renderer | #6 | **Done** | renderer |
 | 1.3 | BPE tokenizer | #7 | **Done** | tokenizer |
-| 1.4 | Dataset + augmentation | #8 | Pending | — |
+| 1.4 | Dataset (Phase A) | #8 | Pending | — |
+| 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
+| 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | Pending | — |
 | 2.2 | Transformer decoder | #10 | Pending | — |
 | 2.3 | Model assembly | #11 | Pending | — |
@@ -259,7 +262,7 @@ IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).
 - poppler-utils (`pdftoppm`)
 
 **Pipeline:** body-only GABC → LuaLaTeX autocompile → nomargin PDF → PNG (300 DPI default).
-Resize to 1050×1485 is **#8 dataset**, not the renderer.
+Resize to model input width is **#8 dataset**, not the renderer.
 
 **Critical: tight margins.** Use Gregorio
 [nomargin](https://gregorio-project.github.io/tips/nomargin.html) technique —
@@ -331,16 +334,74 @@ python scripts/train_tokenizer.py --vocab-size 2048      # standalone script
 
 ### 1.4 Dataset + Augmentation (`chant_omr/data/dataset.py`, `augmentation.py`)
 
-**Phase A:** `ChantOMRDataset` — load paired PNG + GABC, resize 1050×1485,
-tokenize, 90/10 train/val split.
+Split into two issues: **Phase A** ([#8](https://github.com/pgarciaq/chant-omr/issues/8)
+dataset loader) and **Phase B**
+([#30](https://github.com/pgarciaq/chant-omr/issues/30) augmentation engine).
 
-**Multi-variant training samples:** #5 downloads all unique variants per catalog
-`id` (dedupe by SHA256). #8 keeps **all variants** as separate training samples
-— editorial diversity (Solesmes vs Vatican) helps robustness. Optional
-`--one-variant-per-id` filter deferred unless corpus size or edition noise
-becomes a problem.
+#### Phase A — Dataset ([#8](https://github.com/pgarciaq/chant-omr/issues/8))
 
-**Phase B:** On-the-fly domain augmentation (not pre-computed):
+`ChantOMRDataset` — load paired PNG + GABC, resize, tokenize, 90/10 train/val
+split. Augmentation toggle wired but **off by default** until #30 ships.
+
+**Pair discovery (PNG-first):** index `data/rendered/*.png`; require same-stem
+`.gabc`. Apply `plain_gabc_reject_reason()` on the sidecar. Skip unpaired files.
+Legacy slug `.gabc` orphans (no PNG) are ignored by the dataset; optional cleanup
+in [#29](https://github.com/pgarciaq/chant-omr/issues/29).
+
+**Labels:** read GABC body from the rendered sidecar via `extract_gabc_body()`
+(the text Gregorio actually typeset for that PNG).
+
+**Train/val split:** by **catalog id** (not per file) so `id` / `id_elemN`
+variants do not leak across splits. Seeded shuffle for reproducibility.
+
+#### Image sizing (decision 2026-07-11)
+
+ghh will **not** use Stage 6 content-area cropping or portrait page padding for
+OMR. The old 1050×1485 portrait assumption is **retired**.
+
+Gregorio nomargin renders are **wide score strips** (~1182×400–1600 px for most
+chants; some very long antiphons are taller). Corpus stats (2026-07-11, ~511
+PNGs): median aspect ≈ 1.07 (slightly wider than tall).
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `target_width` | **1050** | Scale all images to this width; preserve aspect ratio |
+| `max_height` | **1600** | Cap after scaling; covers ~90% of corpus; longer chants scale down uniformly to fit |
+| Letterboxing | **None** | No white bars to fake a book page |
+
+**ghh inference:** apply the same width-scale + `max_height` cap to dewarped
+pages (full page, no content-area crop). Train and inference share one resize
+policy.
+
+**Batch collation:** images in a batch may have different heights after resize.
+`collate_fn` pads to the **max height in the batch** (bottom pad only) so
+tensors stack — this is batch machinery, not content-area letterboxing. Prefer
+height bucketing later if padding waste becomes significant.
+
+#### Token batching (decision 2026-07-11)
+
+GABC labels are **variable-length** token sequences. Each `__getitem__` returns:
+
+- `pixel_values` — `(3, H, W)` float tensor, ImageNet-normalized
+- `input_ids` — tokenizer output with `<bos>` / `<eos>` (body only, no headers)
+- `attention_mask` — `1` for real tokens
+
+`collate_fn` pads `input_ids` to the longest sequence in the batch (capped at
+`model.max_seq_len: 2048`). Padding uses `<pad>` (id 0); `attention_mask` marks
+padding positions. Teacher-forcing shift (predict-next-token) is **#12** Lightning
+module, not the dataset.
+
+#### Multi-variant training samples
+
+#5 downloads all unique variants per catalog `id` (dedupe by SHA256). #8 keeps
+**all variants** as separate training samples — editorial diversity (Solesmes vs
+Vatican) helps robustness. Optional `--one-variant-per-id` filter deferred unless
+corpus size or edition noise becomes a problem.
+
+#### Phase B — Augmentation ([#30](https://github.com/pgarciaq/chant-omr/issues/30))
+
+On-the-fly domain augmentation (not pre-computed). Deferred from #8; implement in
+`chant_omr/data/augmentation.py`:
 
 | Category | Augmentations |
 |----------|---------------|
@@ -350,8 +411,18 @@ becomes a problem.
 | Degradation | Iron gall corrosion, salt deposits, humidity |
 | Compression | JPEG quality 60–95% |
 
-Augmentation bridges clean Gregorio renders → parchment photos. Not needed for
-overfit smoke test (#12).
+**What augmentation is:** randomly modifying clean Gregorio PNGs during training
+so they resemble parchment manuscript photos (yellowing, foxing, skew, JPEG
+artifacts, ink fade).
+
+**When it helps:** production training on real LPA books — bridges the domain
+gap between synthetic renders and photos.
+
+**When it hurts:** if too aggressive (neumes become unreadable) or during the
+#12 overfit smoke test (unnecessary complexity).
+
+**v0 default:** `data.augment: false` in config until #30 ships; flip to `true`
+when augmentation is production-ready.
 
 ### Alternative data sources (supplementary)
 
@@ -405,7 +476,7 @@ Architecture follows Transcoda (59M params), adapted for square notation + GABC.
 
 ```mermaid
 flowchart TD
-    A["Image 1485×1050"] --> B["ConvNeXt-V2 Tiny encoder\nImageNet pretrained\npatch grid, dim=768"]
+    A["Image width 1050\nvariable height"] --> B["ConvNeXt-V2 Tiny encoder\nImageNet pretrained\npatch grid, dim=768"]
     B --> C["MLP projector\n768 → 512"]
     C --> D["Transformer decoder + RoPE\n8 layers, d=512, 8 heads\nautoregressive GABC tokens"]
     D --> E["GABC sequence"]
@@ -414,7 +485,8 @@ flowchart TD
 ### 2.1 Encoder (`chant_omr/model/encoder.py`)
 
 - `convnextv2_tiny` via `timm`, ImageNet pretrained
-- Input: 1485×1050 portrait chant page (tight-cropped nomargin render)
+- Input: width 1050 px, aspect-preserving height capped at 1600 (nomargin render
+  or ghh dewarped page — no content-area crop, no portrait letterbox)
 - Output: patch embeddings for cross-attention
 
 ### 2.2 Decoder (`chant_omr/model/decoder.py`)
@@ -668,7 +740,7 @@ Primary config: [configs/default.yaml](configs/default.yaml)
 
 | Section | Key fields |
 |---------|------------|
-| `data` | `gabc_dir`, `rendered_dir`, `target_width: 1050`, `target_height: 1485` |
+| `data` | `gabc_dir`, `rendered_dir`, `target_width: 1050`, `max_height: 1600`, `augment: false` |
 | `model` | `encoder_variant: convnextv2_tiny`, `d_model: 512`, `vocab_size: 2048` |
 | `training` | `epochs: 50`, `batch_size: 8`, `learning_rate: 1e-4` |
 | `inference` | `beam_width: 3`, `repetition_penalty: 1.1` |
