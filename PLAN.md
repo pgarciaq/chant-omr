@@ -38,7 +38,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 0 | Dev environment (venv, deps) | — | **Done** | 5 (gabc_parser) |
 | 1.1 | GregoBase downloader | #5 | **Done** | 24 (gregobase) |
 | 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
-| 1.2 | Gregorio renderer | #6 | Pending | — |
+| 1.2 | Gregorio renderer | #6 | **Done** | renderer |
 | 1.3 | BPE tokenizer | #7 | Pending | — |
 | 1.4 | Dataset + augmentation | #8 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | Pending | — |
@@ -232,35 +232,49 @@ IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).
 
 **Stack** (match [GregoBase About](https://gregobase.selapa.net/?page_id=2)):
 
-- Gregorio 5.2.1+
-- LuaLaTeX (TeX Live)
-- Libertinus Serif (`\setmainfont{Libertinus Serif}`)
+- Gregorio 6.x CLI (`gregorio`; renamed from `gabc2gregorio` in 5.0+)
+- LuaLaTeX with `-shell-escape` (autocompile `[a]`)
+- Libertinus Serif via `fontspec` (`\setmainfont{Libertinus Serif}`)
 - poppler-utils (`pdftoppm`)
 
-**Pipeline:** GABC → Gregorio → `.gtex` → LuaLaTeX → PDF → PNG (300 DPI default)
+**Pipeline:** body-only GABC → LuaLaTeX autocompile → nomargin PDF → PNG (300 DPI default).
+Resize to 1050×1485 is **#8 dataset**, not the renderer.
 
 **Critical: tight margins.** Use Gregorio
 [nomargin](https://gregorio-project.github.io/tips/nomargin.html) technique —
-set `\pdfpagewidth`/`\pdfpageheight` to score bounding box. Without this,
-rendered images have variable white padding and break the 1050×1485 resize.
+set `\pagewidth`/`\pageheight` to score bounding box (LuaLaTeX primitives).
+Without this, rendered images have variable white padding and break the 1050×1485 resize.
 
-For short chants, consider fixed `\hsize` or
-[shortscore](https://gregorio-project.github.io/tips/shortscore.html) minipage
-to avoid tiny scores on tall pages.
+v0 uses fixed `\hsize=10cm`. [shortscore](https://gregorio-project.github.io/tips/shortscore.html)
+minipage for very short chants is deferred.
 
-**Output layout:**
+**Source:** manifest `status: ok` entries only (`data/gregobase/manifest.json`).
+
+**GABC content:** body-only (from first `%%`), written with minimal `name:` header for Gregorio.
+Double-header files (multiple `%%`) are logged and skipped.
+
+**Output layout** (id-based names, matching #17 GABC filenames):
 
 ```
 data/rendered/
-  in--respice_domine--dominican.png
-  in--respice_domine--dominican.gabc   # copy or symlink from gregobase/
+  5000.png
+  5000.gabc          # symlink to gregobase/ (copy body-only on cross-device)
+  500_elem1.png
+  500_elem1.gabc
+  render_failures.jsonl
 ```
 
-**Failure handling:** Log and skip. Target >90% render success. Expect failures
-from broken GABC, double headers, NABC scores needing `nabc-lines:1;`, TeX sections.
+**Failure handling:** append to `render_failures.jsonl`, skip and continue. Target >90% render
+success. Expect failures from broken GABC, NABC scores needing `nabc-lines:1;`, TeX sections.
 
-**GABC content:** Decide whether to render full downloaded file (with hymn verses)
-or body-only (after `%%`). Document choice; body-only is simpler for OMR v0.
+**CLI (v0):**
+
+```bash
+chant-omr render                              # all pending manifest ok entries
+chant-omr render --limit 50                   # manual gate batch
+chant-omr render --force                      # re-render existing PNGs
+chant-omr render --dpi 300 --workers 1        # defaults
+```
 
 ### 1.3 BPE Tokenizer (`chant_omr/model/tokenizer.py`)
 

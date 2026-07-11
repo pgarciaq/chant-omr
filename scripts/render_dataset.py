@@ -3,23 +3,65 @@
 
 Prerequisites:
     sudo dnf install texlive-gregoriotex texlive-luatex poppler-utils
+    sudo dnf install texlive-libertinus-fonts  # Libertinus Serif for fontspec
 
 Usage:
     python scripts/render_dataset.py --gabc-dir data/gregobase/ --output data/rendered/
+    python scripts/render_dataset.py --limit 50
 """
 
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
 import click
+
+from chant_omr.data.renderer import render_corpus, toolchain_available
 
 
 @click.command()
 @click.option("--gabc-dir", type=click.Path(exists=True), default="data/gregobase/")
 @click.option("--output", type=click.Path(), default="data/rendered/")
-@click.option("--dpi", type=int, default=300)
-@click.option("--workers", type=int, default=4)
-def main(gabc_dir, output, dpi, workers):
-    """Render GABC files to training images."""
-    click.echo(f"Rendering {gabc_dir} → {output} at {dpi} DPI with {workers} workers")
-    click.echo("Not yet implemented -- see chant_omr/data/renderer.py")
+@click.option("--limit", type=int, default=None, help="Max pending manifest entries to render")
+@click.option("--dpi", type=int, default=300, show_default=True)
+@click.option("--workers", type=int, default=1, show_default=True)
+@click.option("--force", is_flag=True, help="Re-render even when PNG already exists")
+@click.option("--no-progress", is_flag=True, help="Disable the render progress bar")
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Force the progress bar even when stderr is not a TTY",
+)
+def main(gabc_dir, output, limit, dpi, workers, force, no_progress, progress):
+    """Render manifest GABC entries to training images."""
+    if no_progress and progress:
+        raise click.ClickException("Use only one of --progress or --no-progress.")
+    if progress:
+        show_progress = True
+    elif no_progress:
+        show_progress = False
+    else:
+        show_progress = sys.stderr.isatty()
+
+    if not toolchain_available():
+        raise click.ClickException(
+            "Gregorio toolchain not found. Install gregorio, lualatex, and pdftoppm."
+        )
+
+    stats = render_corpus(
+        Path(gabc_dir),
+        Path(output),
+        limit=limit,
+        dpi=dpi,
+        workers=workers,
+        force=force,
+        show_progress=show_progress,
+    )
+    click.echo(
+        f"Manifest ok: {stats.manifest_ok} | Attempted: {stats.attempted} | "
+        f"Rendered: {stats.rendered} | Skipped: {stats.skipped} | Failed: {stats.failed}"
+    )
 
 
 if __name__ == "__main__":
