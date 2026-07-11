@@ -245,12 +245,19 @@ ghh omr /path/to/processed/book --model pgarciaq/chant-omr
 
 ghh downloads the model, runs inference via OpenVINO on the user's Intel hardware, and writes GABC files alongside the PDF.
 
+## Documentation
+
+- **[PLAN.md](PLAN.md)** — technical implementation plan (spec, status, GregoBase/Gregorio details)
+- **[benchmarks/README.md](benchmarks/README.md)** — manual evaluation benchmark workflow
+- **[GitHub Issues](https://github.com/pgarciaq/chant-omr/issues)** — tracked implementation tasks
+
 ## Project Structure
 
 ```
 chant-omr/
 ├── pyproject.toml                # Dependencies (PyTorch, Lightning, etc.)
 ├── README.md
+├── PLAN.md                       # Technical implementation plan
 ├── configs/
 │   └── default.yaml              # Training hyperparameters
 ├── chant_omr/
