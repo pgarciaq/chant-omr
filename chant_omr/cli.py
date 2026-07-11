@@ -46,6 +46,12 @@ def export(checkpoint, fmt, output_dir):
 @click.option("--sync", is_flag=True, help="Also refresh IDs from updates.php")
 @click.option("--days", type=int, default=None, help="Days window for updates.php")
 @click.option(
+    "--sync-limit",
+    type=int,
+    default=None,
+    help="Max sync IDs to refresh (--sync only; does not cap --limit pending batch)",
+)
+@click.option(
     "--rate-limit",
     type=float,
     default=1.0,
@@ -58,7 +64,7 @@ def export(checkpoint, fmt, output_dir):
     is_flag=True,
     help="Force the progress bar even when stderr is not a TTY",
 )
-def download(output_dir, limit, sync, days, rate_limit, no_progress, progress):
+def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress, progress):
     """Download GABC files from GregoBase."""
     import sys
     from pathlib import Path
@@ -74,11 +80,20 @@ def download(output_dir, limit, sync, days, rate_limit, no_progress, progress):
     else:
         show_progress = sys.stderr.isatty()
 
+    if sync and limit is None:
+        click.echo(
+            "Warning: no --limit set — after sync IDs, ALL remaining catalog IDs "
+            "will be downloaded (~20k at 1 req/s ≈ 5.5 h). "
+            "Use --limit 500 for phased runs or --sync-limit to cap sync only.",
+            err=True,
+        )
+
     stats = download_corpus(
         Path(output_dir),
         limit=limit,
         sync=sync,
         sync_days=days,
+        sync_limit=sync_limit,
         rate_limit=rate_limit,
         show_progress=show_progress,
     )

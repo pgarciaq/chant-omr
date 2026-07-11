@@ -25,6 +25,12 @@ from chant_omr.data.gregobase import download_corpus
 @click.option("--sync", is_flag=True, help="Also refresh IDs from updates.php")
 @click.option("--days", type=int, default=None, help="Days window for updates.php")
 @click.option(
+    "--sync-limit",
+    type=int,
+    default=None,
+    help="Max sync IDs to refresh (--sync only)",
+)
+@click.option(
     "--rate-limit",
     type=float,
     default=1.0,
@@ -38,7 +44,7 @@ from chant_omr.data.gregobase import download_corpus
     is_flag=True,
     help="Force the progress bar even when stderr is not a TTY",
 )
-def main(output, limit, sync, days, rate_limit, verbose, no_progress, progress):
+def main(output, limit, sync, days, sync_limit, rate_limit, verbose, no_progress, progress):
     """Download GABC corpus from GregoBase."""
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -52,11 +58,19 @@ def main(output, limit, sync, days, rate_limit, verbose, no_progress, progress):
         show_progress = False
     else:
         show_progress = sys.stderr.isatty()
+    if sync and limit is None:
+        click.echo(
+            "Warning: no --limit set — after sync IDs, ALL remaining catalog IDs "
+            "will be downloaded (~20k at 1 req/s ≈ 5.5 h). "
+            "Use --limit 500 for phased runs or --sync-limit to cap sync only.",
+            err=True,
+        )
     stats = download_corpus(
         Path(output),
         limit=limit,
         sync=sync,
         sync_days=days,
+        sync_limit=sync_limit,
         rate_limit=rate_limit,
         show_progress=show_progress,
     )

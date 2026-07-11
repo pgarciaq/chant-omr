@@ -68,7 +68,7 @@ class ManifestEntry:
     filename: str | None
     sha256: str | None
     size_bytes: int | None
-    status: str  # ok | failed | skipped
+    status: str  # ok | failed (per-entry); in-run resume uses DownloadStats.skipped_files
     source: str
     error: str | None
 
@@ -460,11 +460,13 @@ def _select_catalog_ids(
     *,
     limit: int | None,
     sync_ids: list[int] | None,
+    sync_limit: int | None = None,
 ) -> list[CatalogEntry]:
     """Return catalog rows to process this run.
 
     Normal mode: catalog IDs without any successful variant (``limit`` caps batch).
-    ``--sync`` adds update IDs for forced refresh (not subject to ``limit``).
+    ``--sync`` prepends update IDs for forced refresh (capped by ``sync_limit``).
+    ``--limit`` does not apply to sync IDs.
     """
     index = _catalog_index(catalog)
     success_ids = manifest.ids_with_success()
@@ -482,6 +484,8 @@ def _select_catalog_ids(
         sync_entries.append(
             index.get(chant_id) or CatalogEntry(id=chant_id, office_part="", incipit="")
         )
+    if sync_limit is not None:
+        sync_entries = sync_entries[:sync_limit]
 
     pending = [entry for entry in pending if entry.id not in sync_id_set]
     return sync_entries + pending
@@ -507,6 +511,7 @@ def download_corpus(
     limit: int | None = None,
     sync: bool = False,
     sync_days: int | None = None,
+    sync_limit: int | None = None,
     rate_limit: float = DEFAULT_RATE_LIMIT,
     show_progress: bool = False,
 ) -> DownloadStats:
@@ -541,7 +546,9 @@ def download_corpus(
             show_progress=show_progress,
         )
 
-    to_process = _select_catalog_ids(catalog, manifest, limit=limit, sync_ids=sync_ids)
+    to_process = _select_catalog_ids(
+        catalog, manifest, limit=limit, sync_ids=sync_ids, sync_limit=sync_limit
+    )
     rate_limiter = RateLimiter(rate_limit)
 
     downloaded_files = 0

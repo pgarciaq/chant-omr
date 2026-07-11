@@ -36,7 +36,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | Step | Component | Issue | Status | Tests |
 |------|-----------|-------|--------|-------|
 | 0 | Dev environment (venv, deps) | — | **Done** | 5 (gabc_parser) |
-| 1.1 | GregoBase downloader | #5 | **Done** | 25 (gregobase) |
+| 1.1 | GregoBase downloader | #5 | **Done** | 22 (gregobase) |
 | 1.2 | Gregorio renderer | #6 | Pending | — |
 | 1.3 | BPE tokenizer | #7 | Pending | — |
 | 1.4 | Dataset + augmentation | #8 | Pending | — |
@@ -85,7 +85,11 @@ valid). Probe `elem=1`, `elem=2`, … until invalid; **deduplicate by SHA256**
 1. `GET` bare URL (no `elem`).
 2. `GET` `elem=1` … `elem=20` (max cap). Stop when body is empty, lacks `%%`, or
    SHA256 was already saved for this `id`.
-3. Save each unique variant using `Content-Disposition` filename.
+3. Save each unique variant to disk:
+   - Prefer `Content-Disposition` filename when meaningful (not a placeholder like
+     `----.gabc` and no on-disk collision)
+   - Otherwise fall back to `{id}.gabc` or `{id}_elem{N}.gabc`
+   - **#17** will switch to id-based names always
 4. Record `elem: null` for bare-only successes, `elem: N` otherwise.
 
 Verified live: `id=500` bare=0 / elem=1=714 B; `id=5000` bare=908 B (all elems
@@ -101,7 +105,8 @@ Returns **HTML** (not CSV/JSON). Default window: 15 days; `?days=30` works.
 
 Parse `<a href="chant.php?id=NNNN">` from each `<li>`; collect unique IDs
 (same ID may appear multiple times for edit history). Re-download all variants
-for each ID. Store `last_sync_date` in manifest.
+for each ID. Store `last_sync_date` in manifest. Cap sync batch with
+`--sync-limit` (independent of `--limit`).
 
 **Manifest** (`data/gregobase/manifest.json`):
 
@@ -129,10 +134,13 @@ for each ID. Store `last_sync_date` in manifest.
 | Field | Purpose |
 |-------|---------|
 | `office_part`, `incipit` | From `csv.php` catalog — debugging |
-| `status` | `ok` / `failed` / `skipped` |
+| `status` | `ok` or `failed` per file variant |
 | `error` | HTTP code, empty body, missing `%%`, etc. |
 | `size_bytes` | Detect truncated downloads |
 | `source` | `live` (v0 only; archive bootstrap deferred) |
+
+In-run resume (same ID re-fetched with matching SHA256) increments
+`DownloadStats.skipped_files`; it does **not** write `status: skipped` rows.
 
 Manifest is local state (`data/gregobase/` is gitignored).
 
@@ -162,6 +170,14 @@ takes **~5.5 hours** — use phased runs (see below).
 | Backoff | Exponential on 429/503 (3 retries) |
 | Resume | Skip `status: ok` entries with matching SHA256; re-fetch `failed` |
 
+**Crash safety (#17):** manifest is saved after each ID, but a hard crash mid-ID
+can drop that ID's manifest row while files remain (re-download on resume, not
+data loss). Atomic writes deferred to #17.
+
+**Catalog order:** `csv.php` row order is not quality-sorted — early pending IDs
+often have empty metadata and stub GABC. Harmless; resume skips completed IDs.
+Do not reorder (keeps runs reproducible).
+
 **Bootstrap archives:** deferred post-v0. [GregoBaseCorpus v0.4](https://github.com/bacor/gregobasecorpus/releases/tag/v0.4)
 is from **July 2020** (~6 years stale). v0 ships **live-download-only**; archive
 bootstrap can be added later if needed.
@@ -169,11 +185,27 @@ bootstrap can be added later if needed.
 **CLI (v0):**
 
 ```bash
-chant-omr download                         # catalog + download missing
-chant-omr download --sync [--days 30]    # also parse updates.php
-chant-omr download --limit 500           # phased batch (resume via manifest)
-chant-omr download --rate-limit 1.0      # seconds between download.php calls
+chant-omr download                              # catalog + download missing
+chant-omr download --limit 500                  # phased pending batch (recommended)
+chant-omr download --sync --days 30 --limit 500 # sync recent edits + pending batch
+chant-omr download --sync --sync-limit 20       # cap sync IDs only
+chant-omr download --rate-limit 1.0             # seconds between download.php calls
 ```
+
+**Correct usage:**
+
+| Goal | Command |
+|------|---------|
+| First corpus (phased) | `chant-omr download --limit 500` (repeat until corpus bar full) |
+| Stop laptop / resume | Same command — manifest saved per ID |
+| Refresh recent edits | `chant-omr download --sync --days 7 --limit 100` |
+| Sync only (no pending) | `chant-omr download --sync --sync-limit 50 --limit 0`¹ |
+
+¹ `--limit 0` processes zero pending IDs; only sync entries run.
+
+**Warning:** `chant-omr download --sync` without `--limit` downloads **all**
+remaining pending IDs (~20k) after sync — ~5.5 h at 1 req/s. Always use `--limit`
+for phased runs unless you intend a full corpus fetch.
 
 **Phased first run:** use `--limit N` repeatedly; manifest resume skips completed
 IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).

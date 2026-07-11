@@ -221,6 +221,35 @@ class TestDownloadVariants:
         assert new_count == 1
         assert len(entries) == 1
 
+    def test_download_multi_variant(self, tmp_path: Path):
+        session = self._session_with_responses(
+            [
+                _mock_response(
+                    content=VALID_GABC,
+                    headers={"Content-Disposition": "attachment; filename=bare.gabc"},
+                ),
+                _mock_response(
+                    content=ELEM_GABC,
+                    headers={"Content-Disposition": "attachment; filename=elem1.gabc"},
+                ),
+                _mock_response(content=b""),
+            ]
+        )
+        entry = gb.CatalogEntry(500, "Antiphona", "Haec est virgo")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert new_count == 2
+        assert len(entries) == 2
+        assert {e.elem for e in entries} == {None, 1}
+        assert len(paths) == 2
+        assert gb.sha256_bytes(VALID_GABC) in {e.sha256 for e in entries}
+        assert gb.sha256_bytes(ELEM_GABC) in {e.sha256 for e in entries}
+
     def test_download_invalid_gabc(self, tmp_path: Path):
         session = self._session_with_responses(
             [_mock_response(content=b"") for _ in range(gb.MAX_ELEM + 2)]
@@ -332,6 +361,18 @@ class TestSelectCatalogIds:
         )
         selected = gb._select_catalog_ids(catalog, manifest, limit=1, sync_ids=None)
         assert [e.id for e in selected] == [2]
+
+    def test_sync_limit_flag(self):
+        catalog = [
+            gb.CatalogEntry(1, "", "a"),
+            gb.CatalogEntry(2, "", "b"),
+            gb.CatalogEntry(3, "", "c"),
+        ]
+        manifest = gb.Manifest()
+        selected = gb._select_catalog_ids(
+            catalog, manifest, limit=0, sync_ids=[10, 20, 30], sync_limit=2
+        )
+        assert [e.id for e in selected] == [10, 20]
 
 
 class TestDownloadCorpus:
