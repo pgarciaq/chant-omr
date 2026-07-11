@@ -25,7 +25,7 @@ flowchart TD
     A(["Score Image (width 1050, variable height)"])
     B["**ConvNeXt-V2 encoder**
     pretrained ImageNet, fine-tuned
-    47×33 patch grid, dim=768"]
+    variable H'×32 patch grid, dim=768"]
     C["**2D sinusoidal + MLP project**
     positional encoding, 768 → 512"]
     D["**Transformer decoder + RoPE**
@@ -37,6 +37,9 @@ flowchart TD
 
     A --> B --> C --> D --> E
 ```
+
+At width 1050 the encoder produces **32 patch columns**; row count depends on
+image height after resize (typically ~12–50 for Gregorio strips).
 
 Design follows [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1) (59M params for modern notation OMR), adapted for square notation:
 

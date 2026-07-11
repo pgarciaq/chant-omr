@@ -44,7 +44,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.4 | Dataset (Phase A) | #8 | **Done** | dataset |
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
 | 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
-| 2.1 | ConvNeXt-V2 encoder | #9 | Pending | — |
+| 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
 | 2.2 | Transformer decoder | #10 | Pending | — |
 | 2.3 | Model assembly | #11 | Pending | — |
 | 3.1 | Lightning training | #12 | Pending | — |
@@ -476,7 +476,7 @@ Architecture follows Transcoda (59M params), adapted for square notation + GABC.
 
 ```mermaid
 flowchart TD
-    A["Image width 1050\nvariable height"] --> B["ConvNeXt-V2 Tiny encoder\nImageNet pretrained\npatch grid, dim=768"]
+    A["Image width 1050\nvariable height"] --> B["ConvNeXt-V2 Tiny encoder\nImageNet pretrained\nvariable patch grid, dim=768"]
     B --> C["MLP projector\n768 → 512"]
     C --> D["Transformer decoder + RoPE\n8 layers, d=512, 8 heads\nautoregressive GABC tokens"]
     D --> E["GABC sequence"]
@@ -484,10 +484,17 @@ flowchart TD
 
 ### 2.1 Encoder (`chant_omr/model/encoder.py`)
 
-- `convnextv2_tiny` via `timm`, ImageNet pretrained
+- `convnextv2_tiny` via `timm` (`convnextv2_tiny.fcmae_ft_in22k_in1k`), ImageNet pretrained
 - Input: width 1050 px, aspect-preserving height capped at 1600 (nomargin render
   or ghh dewarped page — no content-area crop, no portrait letterbox)
-- Output: patch embeddings for cross-attention
+- Output: `(B, 768, H', W')` feature map and `(B, H'W', 768)` flattened memory for
+  decoder cross-attention; patch grid **varies with image height** (stride 32;
+  width 1050 → 32 columns)
+
+```python
+encoder, embed_dim, stride = build_encoder(variant="convnextv2_tiny", pretrained=True)
+output = encoder(pixel_values)  # EncoderOutput: feature_map, memory, grid_size
+```
 
 ### 2.2 Decoder (`chant_omr/model/decoder.py`)
 

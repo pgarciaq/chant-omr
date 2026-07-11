@@ -33,9 +33,9 @@ class ChantOMRConfig:
     max_seq_len: int = 2048
     vocab_size: int = 2048
 
-    # Input
+    # Input (resize policy — not fixed canvas size)
     image_width: int = 1050
-    image_height: int = 1485
+    max_height: int = 1600
 
 
 def build_model(config: ChantOMRConfig | None = None):

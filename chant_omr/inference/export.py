@@ -14,8 +14,8 @@ from pathlib import Path
 def export_openvino(
     checkpoint_path: Path,
     output_dir: Path,
-    input_height: int = 1485,
     input_width: int = 1050,
+    input_height: int = 1600,
 ) -> Path:
     """Export model to OpenVINO IR format.
 
@@ -25,8 +25,8 @@ def export_openvino(
     Args:
         checkpoint_path: Path to trained .ckpt or .safetensors.
         output_dir: Directory for OpenVINO .xml and .bin files.
-        input_height: Fixed input image height.
-        input_width: Fixed input image width.
+        input_width: Reference input width (height may be dynamic until #13).
+        input_height: Reference max input height for export benchmarking.
 
     Returns:
         Path to the exported .xml model file.
@@ -37,8 +37,8 @@ def export_openvino(
 def export_onnx(
     checkpoint_path: Path,
     output_path: Path,
-    input_height: int = 1485,
     input_width: int = 1050,
+    input_height: int = 1600,
 ) -> Path:
     """Export model to ONNX format."""
     raise NotImplementedError("ONNX export not yet implemented")
