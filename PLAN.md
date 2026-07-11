@@ -36,7 +36,8 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | Step | Component | Issue | Status | Tests |
 |------|-----------|-------|--------|-------|
 | 0 | Dev environment (venv, deps) | — | **Done** | 5 (gabc_parser) |
-| 1.1 | GregoBase downloader | #5 | **Done** | 22 (gregobase) |
+| 1.1 | GregoBase downloader | #5 | **Done** | 24 (gregobase) |
+| 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
 | 1.2 | Gregorio renderer | #6 | Pending | — |
 | 1.3 | BPE tokenizer | #7 | Pending | — |
 | 1.4 | Dataset + augmentation | #8 | Pending | — |
@@ -85,11 +86,8 @@ valid). Probe `elem=1`, `elem=2`, … until invalid; **deduplicate by SHA256**
 1. `GET` bare URL (no `elem`).
 2. `GET` `elem=1` … `elem=20` (max cap). Stop when body is empty, lacks `%%`, or
    SHA256 was already saved for this `id`.
-3. Save each unique variant to disk:
-   - Prefer `Content-Disposition` filename when meaningful (not a placeholder like
-     `----.gabc` and no on-disk collision)
-   - Otherwise fall back to `{id}.gabc` or `{id}_elem{N}.gabc`
-   - **#17** will switch to id-based names always
+3. Save each unique variant as `{id}.gabc` (bare) or `{id}_elem{N}.gabc`.
+   GregoBase `Content-Disposition` slugs are ignored for on-disk names.
 4. Record `elem: null` for bare-only successes, `elem: N` otherwise.
 
 Verified live: `id=500` bare=0 / elem=1=714 B; `id=5000` bare=908 B (all elems
@@ -120,7 +118,7 @@ for each ID. Store `last_sync_date` in manifest. Cap sync batch with
       "elem": null,
       "office_part": "Introitus",
       "incipit": "Respice Domine",
-      "filename": "in--respice_domine--dominican.gabc",
+      "filename": "5000.gabc",
       "sha256": "...",
       "size_bytes": 908,
       "status": "ok",
@@ -142,7 +140,14 @@ for each ID. Store `last_sync_date` in manifest. Cap sync batch with
 In-run resume (same ID re-fetched with matching SHA256) increments
 `DownloadStats.skipped_files`; it does **not** write `status: skipped` rows.
 
-Manifest is local state (`data/gregobase/` is gitignored).
+Manifest is local state (`data/gregobase/` is gitignored). Saved atomically via
+`manifest.json.tmp` → `os.replace()`. Per-ID updates use `replace_entries_for_id`
+(no remove-before-download). Re-downloading an ID deletes superseded `.gabc` files
+listed in the previous manifest rows for that ID.
+
+**Mixed corpora:** trees downloaded before #17 may still have GregoBase slug
+filenames; resume works via manifest paths. IDs re-fetched after #17 use id-based
+names and drop orphan slugs on disk.
 
 **Polite download (rate limiting):**
 
@@ -170,9 +175,10 @@ takes **~5.5 hours** — use phased runs (see below).
 | Backoff | Exponential on 429/503 (3 retries) |
 | Resume | Skip `status: ok` entries with matching SHA256; re-fetch `failed` |
 
-**Crash safety (#17):** manifest is saved after each ID, but a hard crash mid-ID
-can drop that ID's manifest row while files remain (re-download on resume, not
-data loss). Atomic writes deferred to #17.
+**Crash safety:** manifest is saved after each ID via atomic replace. A hard crash
+mid-ID leaves the prior manifest row intact (no remove-before-save). A crash after
+writing a new `.gabc` but before manifest save may leave an extra file on disk;
+resume re-downloads that ID (wasteful, not data loss).
 
 **Catalog order:** `csv.php` row order is not quality-sorted — early pending IDs
 often have empty metadata and stub GABC. Harmless; resume skips completed IDs.
@@ -215,10 +221,12 @@ IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).
 - `download.php` injects GABC headers from DB metadata; Score field is body-only
 - Hymns append extra verses from separate DB field
 - Some chants fail with duplicate `Content-Disposition` without `elem` param
-  (e.g. placeholder `----.gabc`); downloader falls back to `{id}[_elem{N}].gabc`
+  (e.g. placeholder `----.gabc`); on-disk names are always id-based (#17)
 - Corpus has duplicates, broken GABC, double headers — see
   [pleasefix.php](https://gregobase.selapa.net/pleasefix.php). Download everything;
   filter at render time.
+- Resume stops the `elem` loop when bare variant matches manifest; inconsistent
+  disk/manifest state recovery deferred to #16.
 
 ### 1.2 Gregorio Renderer (`chant_omr/data/renderer.py`)
 

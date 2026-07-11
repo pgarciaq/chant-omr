@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -38,6 +39,7 @@ DEFAULT_RATE_LIMIT = 1.0
 DEFAULT_TIMEOUT = 30
 MAX_RETRIES = 3
 MANIFEST_FILENAME = "manifest.json"
+MANIFEST_TMP_SUFFIX = ".tmp"
 
 CHANT_ID_RE = re.compile(r"chant\.php\?id=(\d+)", re.IGNORECASE)
 CATALOG_DATE_RE = re.compile(r"gregobase_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})")
@@ -45,7 +47,6 @@ CONTENT_DISPOSITION_FILENAME_RE = re.compile(
     r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?',
     re.IGNORECASE,
 )
-GENERIC_FILENAME_RE = re.compile(r"^-+\.gabc$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -115,8 +116,12 @@ class Manifest:
         )
 
     def save(self, path: Path) -> None:
+        """Atomically write manifest JSON (``path`` + ``.tmp`` then replace)."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n", encoding="utf-8")
+        tmp_path = path.with_name(path.name + MANIFEST_TMP_SUFFIX)
+        payload = json.dumps(self.to_dict(), indent=2) + "\n"
+        tmp_path.write_text(payload, encoding="utf-8")
+        os.replace(tmp_path, path)
 
     @classmethod
     def load(cls, path: Path) -> Manifest:
@@ -124,8 +129,14 @@ class Manifest:
             return cls()
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
-    def remove_entries_for_id(self, chant_id: int) -> None:
-        self.entries = [e for e in self.entries if e.id != chant_id]
+    def replace_entries_for_id(
+        self, chant_id: int, new_entries: list[ManifestEntry]
+    ) -> list[ManifestEntry]:
+        """Replace all manifest rows for ``chant_id``; return the previous rows."""
+        previous = self.entries_for_id(chant_id)
+        self.entries = [entry for entry in self.entries if entry.id != chant_id]
+        self.entries.extend(new_entries)
+        return previous
 
     def entries_for_id(self, chant_id: int) -> list[ManifestEntry]:
         return [e for e in self.entries if e.id == chant_id]
@@ -229,31 +240,11 @@ def parse_content_disposition_filename(headers: dict[str, str]) -> str | None:
     return match.group(1).strip()
 
 
-def fallback_filename(chant_id: int, elem: int | None) -> str:
+def disk_filename(chant_id: int, elem: int | None) -> str:
+    """On-disk GABC name: ``{id}.gabc`` or ``{id}_elem{N}.gabc``."""
     if elem is None:
         return f"{chant_id}.gabc"
     return f"{chant_id}_elem{elem}.gabc"
-
-
-def is_generic_filename(filename: str) -> bool:
-    """Return True for GregoBase placeholder names like ``----.gabc``."""
-    return bool(GENERIC_FILENAME_RE.match(filename))
-
-
-def resolve_filename(
-    headers: dict[str, str],
-    chant_id: int,
-    elem: int | None,
-    output_dir: Path,
-    digest: str,
-) -> str:
-    """Choose a unique on-disk filename for one downloaded variant."""
-    candidate = parse_content_disposition_filename(headers)
-    if candidate and not is_generic_filename(candidate):
-        dest = output_dir / candidate
-        if not dest.exists() or sha256_bytes(dest.read_bytes()) == digest:
-            return candidate
-    return fallback_filename(chant_id, elem)
 
 
 def parse_updates_html(html: str) -> list[int]:
@@ -392,7 +383,7 @@ def download_variants_for_id(
             continue
 
         digest = sha256_bytes(body)
-        filename = resolve_filename(headers, catalog_entry.id, elem, output_dir, digest)
+        filename = disk_filename(catalog_entry.id, elem)
 
         existing = manifest.find_ok_entry(catalog_entry.id, elem, digest)
         if existing and existing.filename:
@@ -448,6 +439,20 @@ def download_variants_for_id(
         )
 
     return saved_paths, new_entries, skipped, new_downloads
+
+
+def _delete_orphan_gabc_files(
+    output_dir: Path,
+    previous_entries: list[ManifestEntry],
+    new_entries: list[ManifestEntry],
+) -> None:
+    """Remove superseded on-disk GABC files after a successful per-ID refresh."""
+    old_names = {entry.filename for entry in previous_entries if entry.filename}
+    new_names = {entry.filename for entry in new_entries if entry.filename}
+    for filename in old_names - new_names:
+        path = output_dir / filename
+        if path.is_file():
+            path.unlink()
 
 
 def _catalog_index(catalog: list[CatalogEntry]) -> dict[int, CatalogEntry]:
@@ -591,7 +596,6 @@ def download_corpus(
         entries_iter = progress_bar
 
     for catalog_entry in entries_iter:
-        manifest.remove_entries_for_id(catalog_entry.id)
         saved, entries, skipped, new_count = download_variants_for_id(
             session,
             catalog_entry,
@@ -599,7 +603,9 @@ def download_corpus(
             manifest,
             rate_limiter=rate_limiter,
         )
-        manifest.entries.extend(entries)
+        previous_entries = manifest.replace_entries_for_id(catalog_entry.id, entries)
+        if any(entry.status == "ok" for entry in entries):
+            _delete_orphan_gabc_files(output_dir, previous_entries, entries)
         skipped_files += skipped
         downloaded_files += new_count
 
