@@ -39,6 +39,7 @@ already-documented pattern.
 | [0006](0006-transcoda-decoder-architecture.md) | Transcoda-aligned Pre-LN decoder with RoPE | Accepted |
 | [0007](0007-nabc-deferred-for-v0.md) | Defer NABC support for v0 | Accepted |
 | [0008](0008-end-to-end-over-classical-omr.md) | End-to-end vision-encoder-decoder over classical OMR | Accepted |
+| [0009](0009-mlp-projector-and-2d-sinusoidal-bridge.md) | MLP projector and 2D sinusoidal bridge | Accepted |
 
 ## Template
 

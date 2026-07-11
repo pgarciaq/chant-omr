@@ -48,7 +48,7 @@ Architecture decision records: [docs/adr/](docs/adr/README.md).
 | 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
 | 2.2 | Transformer decoder | #10 | **Done** | decoder |
-| 2.3 | Model assembly | #11 | Pending | — |
+| 2.3 | Model assembly | #11 | **Done** | model |
 | 3.1 | Lightning training | #12 | Pending | — |
 | 4.1 | Inference + export | #13 | Pending | — |
 | 4.2 | Benchmark evaluation | #14 | Pending | — |
@@ -525,9 +525,18 @@ logits = decoder(input_ids, encoder_memory)  # (B, T, vocab_size)
 
 ### 2.3 Model Assembly (`chant_omr/model/chant_omr_model.py`)
 
-- Wire encoder → MLP projector → decoder
+- Wire encoder → **2D sinusoidal PE** → flatten → **MLP projector** (768→512) → decoder
 - `ChantOMRConfig` from `configs/default.yaml`
-- Target ~59M parameters
+- Target ~59M parameters ([#34](https://github.com/pgarciaq/chant-omr/issues/34))
+- ADR: [docs/adr/0009-mlp-projector-and-2d-sinusoidal-bridge.md](docs/adr/0009-mlp-projector-and-2d-sinusoidal-bridge.md)
+
+```python
+from chant_omr.model.chant_omr_model import build_model, ChantOMRConfig, count_model_parameters
+
+model = build_model(ChantOMRConfig.from_mapping(config["model"]))
+logits = model(pixel_values, input_ids)  # (B, T, vocab_size)
+breakdown = count_model_parameters(model)
+```
 
 ---
 
