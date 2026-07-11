@@ -49,10 +49,27 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 4.2 | Benchmark evaluation | #14 | Pending | — |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
 
+**Epic 5 (NABC, deferred):** [#22](https://github.com/pgarciaq/chant-omr/issues/22) ·
+[#23](https://github.com/pgarciaq/chant-omr/issues/23) render ·
+[#24](https://github.com/pgarciaq/chant-omr/issues/24) collapse ·
+[#25](https://github.com/pgarciaq/chant-omr/issues/25) training ·
+[#26](https://github.com/pgarciaq/chant-omr/issues/26) prefetch ·
+[#28](https://github.com/pgarciaq/chant-omr/issues/28) docs
+
+| Step | Component | Issue | Status | Tests |
+|------|-----------|-------|--------|-------|
+| 5.0 | NABC epic (policy + tracking) | #22 | **Done** | — |
+| 5.1 | Full NABC rendering | #23 | Pending | — |
+| 5.2 | Collapse NABC → plain GABC | #24 | Pending | — |
+| 5.3 | NABC training/dataset path | #25 | Pending | — |
+| 5.4 | Prefetch plain GABC twins | #26 | Pending | — |
+| 5.5 | PLAN.md Epic 5 section | #28 | **Done** | — |
+
 **Epics:** [#1 Data](https://github.com/pgarciaq/chant-omr/issues/1) ·
 [#2 Model](https://github.com/pgarciaq/chant-omr/issues/2) ·
 [#3 Training](https://github.com/pgarciaq/chant-omr/issues/3) ·
-[#4 Eval/Deploy](https://github.com/pgarciaq/chant-omr/issues/4)
+[#4 Eval/Deploy](https://github.com/pgarciaq/chant-omr/issues/4) ·
+[#5 NABC](https://github.com/pgarciaq/chant-omr/issues/22) (deferred)
 
 ---
 
@@ -272,7 +289,11 @@ data/rendered/
 
 **Failure handling:** append to `render_failures.jsonl`, skip and continue. Target >90% render
 success on **plain GABC** batches. NABC notation is skipped explicitly (`NABC notation not
-supported in v0`). Expect failures from broken GABC and TeX edge cases.
+supported in v0`); see [Epic 5: NABC](#epic-5-nabc-notation-support-deferred). Expect
+failures from broken GABC and TeX edge cases.
+
+**Follow-up:** [#27](https://github.com/pgarciaq/chant-omr/issues/27) — render success % and
+skip category counters (NABC, empty body, compile).
 
 **CLI (v0):**
 
@@ -285,7 +306,9 @@ chant-omr render --dpi 300 --workers 1        # defaults
 
 ### 1.3 BPE Tokenizer (`chant_omr/model/tokenizer.py`)
 
-- Train on GABC **body** fields (after `%%`) via `gabc_parser.py`
+- Train on GABC **body** fields (after final `%%`) via `gabc_parser.py`
+- **Plain corpus only:** exclude NABC (`is_nabc_notation()`) and empty bodies — same
+  filter as renderer (#21); see [Epic 5](#epic-5-nabc-notation-support-deferred)
 - Vocab size 2048 (`configs/default.yaml`)
 - Save to `data/tokenizer/`
 - Inference must output full GABC: headers + `%%` + body
@@ -466,6 +489,81 @@ ghh omr /path/to/processed/book --model pgarciaq/chant-omr
 
 ---
 
+## Epic 5: NABC Notation Support (deferred)
+
+GitHub: [#22](https://github.com/pgarciaq/chant-omr/issues/22) (epic). **Not required for v0**
+square-notation OMR or ghh. Parish/choir books (e.g. LPA scans) use plain square notation
+only — NABC does not appear in those sources.
+
+### What NABC is
+
+**Neumes Above/Below Chant** — a modern Gregorio extension for scholarly analytical
+transcriptions. Pipe syntax inside neume groups encodes adiastematic layers (St. Gallen,
+Laon) alongside square notation:
+
+```
+(c4) AL(e|/ta)le(egf|toS2|/efED|...)lú(g!hwi!jv|...)ia.
+```
+
+Gregorio requires `nabc-lines: N;` in the header. Detection: `is_nabc_notation()` in
+`gabc_parser.py` (closed [#21](https://github.com/pgarciaq/chant-omr/issues/21)).
+
+### Relationship to Epic #1
+
+| Layer | v0 behavior |
+|-------|-------------|
+| Download | NABC files saved like any GABC (`status: ok`) |
+| Render | **Skipped** by default — message `NABC notation not supported in v0` |
+| Tokenizer (#7) | **Excluded** from BPE training corpus |
+| Dataset (#8) | **Excluded** — no PNG pairs for skipped NABC |
+
+### Corpus facts (local manifest, 2026-07-11)
+
+| Category | ~Count | Notes |
+|----------|--------|-------|
+| Plain GABC | 1239+ | Primary training path |
+| NABC | 43 | ~2.4% of ok entries |
+| NABC with plain twin (same incipit + office_part, other ID) | 36 | Prefer plain edition — do not derive from NABC |
+| NABC unique (no plain incipit match) | 7 | e.g. `Alleluia (Nos qui vivimus)` |
+
+Stripping pipes → plain GABC renders (43/43 tested) but **duplicates work** when a native
+plain GregoBase file already exists.
+
+### Design principles
+
+1. **Default: skip NABC** at render — no change to v0 pipeline
+2. **Prefer native plain GABC** over collapsed NABC ([#26](https://github.com/pgarciaq/chant-omr/issues/26) prefetch)
+3. **Full NABC render** ([#23](https://github.com/pgarciaq/chant-omr/issues/23)) for scholarly use, not ghh v0
+4. **Collapse to plain** ([#24](https://github.com/pgarciaq/chant-omr/issues/24)) only with
+   `--only-if-plain-missing` (default on when collapse enabled)
+5. **Training on NABC** ([#25](https://github.com/pgarciaq/chant-omr/issues/25)) only after explicit product decision
+
+### Child issues
+
+| Step | Issue | Summary |
+|------|-------|---------|
+| 5.1 | [#23](https://github.com/pgarciaq/chant-omr/issues/23) | `--include-nabc`, inject `nabc-lines`, nomargin PNG |
+| 5.2 | [#24](https://github.com/pgarciaq/chant-omr/issues/24) | `strip_nabc_square_only()`, plain-twin guard |
+| 5.3 | [#25](https://github.com/pgarciaq/chant-omr/issues/25) | Optional tokenizer/dataset path (deferred) |
+| 5.4 | [#26](https://github.com/pgarciaq/chant-omr/issues/26) | Download plain catalog twin instead of deriving |
+| 5.5 | [#28](https://github.com/pgarciaq/chant-omr/issues/28) | This PLAN section |
+
+**Epic #1 related:** [#27](https://github.com/pgarciaq/chant-omr/issues/27) — render batch
+success % and NABC/empty/compile skip counters.
+
+### Out of scope
+
+- Volpiano / manuscript adiastematic OMR from photos
+- NABC in v0 model training without #25 sign-off
+- Replacing GregoBase plain editions with stripped NABC
+
+### References
+
+- [Gregorio NABC reference (PDF)](https://gregorio-project.github.io/gregorio/en/GregorioNabcRef.pdf)
+- [GregoBase NABC list](https://gregobase.selapa.net/nabc.php)
+
+---
+
 ## GABC vs Volpiano (why not Volpiano?)
 
 GABC is not universally "better" than Volpiano — they solve different problems.
@@ -592,7 +690,8 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 |------|-------|-----------|-----------|-------------|
 | 0 | — | `test_gabc_parser.py` | 5 parser tests | — |
 | 1.1 | #5 | `test_gregobase.py` | Catalog, elem, updates, manifest, rate limit | `download --limit 50` live |
-| 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 files |
+| 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 plain GABC |
+| 1.2e | #27 | — | — | Success % + skip counters in CLI output |
 | 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
 | 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant entries | DataLoader batch |
 | 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |
@@ -630,7 +729,7 @@ GABC response bodies (bare, elem=1, duplicate SHA).
 | Gate | When | Command / criterion |
 |------|------|---------------------|
 | Downloader smoke | Close #5 | `chant-omr download --limit 50` + resume on re-run |
-| Renderer batch | Close #6 | >90% render success on 50 GABC files |
+| Renderer batch | Close #6 | >90% render success on 50 **plain** GABC files |
 | Pipeline smoke | Close #12 | Overfit 10 samples, loss → ~0 |
 | Benchmark eval | Close #14 | `evaluate` prints GED + neume accuracy |
 | Consumer | Close #15 | `ghh omr` writes `.gabc` on dewarped page |
