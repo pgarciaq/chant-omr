@@ -41,7 +41,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
 | 1.2 | Gregorio renderer | #6 | **Done** | renderer |
 | 1.3 | BPE tokenizer | #7 | **Done** | tokenizer |
-| 1.4 | Dataset (Phase A) | #8 | Pending | — |
+| 1.4 | Dataset (Phase A) | #8 | **Done** | dataset |
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
 | 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | Pending | — |
@@ -775,7 +775,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 plain GABC |
 | 1.2e | #27 | — | — | Success % + skip counters in CLI output |
 | 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
-| 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant entries | DataLoader batch |
+| 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant, collate | DataLoader batch |
 | 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |
 | 2.2 | #10 | `test_decoder.py` | Forward pass, causal mask | — |
 | 2.3 | #11 | `test_model.py` | E2E forward, param count ~59M | — |

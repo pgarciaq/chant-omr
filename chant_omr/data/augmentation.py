@@ -58,6 +58,9 @@ def augment(
 ) -> np.ndarray:
     """Apply random augmentations to a clean rendered score image.
 
+    Full domain augmentation is tracked in GitHub #30. Until then, apply mild
+    photometric jitter so the dataset ``augment`` toggle is testable.
+
     Args:
         image: Clean rendered image (H, W, 3), uint8.
         config: Augmentation parameters. Defaults to AugmentationConfig().
@@ -66,4 +69,11 @@ def augment(
     Returns:
         Augmented image with same shape, uint8.
     """
-    raise NotImplementedError("Augmentation not yet implemented")
+    del config  # reserved for #30
+    if rng is None:
+        rng = np.random.default_rng()
+    if image.dtype != np.uint8:
+        raise TypeError(f"expected uint8 image, got {image.dtype}")
+    factor = rng.uniform(0.85, 1.15)
+    out = np.clip(image.astype(np.float32) * factor, 0, 255).astype(np.uint8)
+    return out
