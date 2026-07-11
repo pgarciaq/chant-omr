@@ -36,7 +36,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | Step | Component | Issue | Status | Tests |
 |------|-----------|-------|--------|-------|
 | 0 | Dev environment (venv, deps) | — | **Done** | 5 (gabc_parser) |
-| 1.1 | GregoBase downloader | #5 | Pending | — |
+| 1.1 | GregoBase downloader | #5 | **Done** | 25 (gregobase) |
 | 1.2 | Gregorio renderer | #6 | Pending | — |
 | 1.3 | BPE tokenizer | #7 | Pending | — |
 | 1.4 | Dataset + augmentation | #8 | Pending | — |
@@ -183,6 +183,7 @@ IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).
 - `download.php` injects GABC headers from DB metadata; Score field is body-only
 - Hymns append extra verses from separate DB field
 - Some chants fail with duplicate `Content-Disposition` without `elem` param
+  (e.g. placeholder `----.gabc`); downloader falls back to `{id}[_elem{N}].gabc`
 - Corpus has duplicates, broken GABC, double headers — see
   [pleasefix.php](https://gregobase.selapa.net/pleasefix.php). Download everything;
   filter at render time.

@@ -42,10 +42,34 @@ def export(checkpoint, fmt, output_dir):
 
 @main.command()
 @click.option("--output-dir", type=click.Path(), default="data/gregobase/")
-@click.option("--limit", type=int, default=None, help="Max number of chants to download")
-def download(output_dir, limit):
+@click.option("--limit", type=int, default=None, help="Max incomplete catalog IDs to process")
+@click.option("--sync", is_flag=True, help="Also refresh IDs from updates.php")
+@click.option("--days", type=int, default=None, help="Days window for updates.php")
+@click.option(
+    "--rate-limit",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Seconds between download.php requests",
+)
+def download(output_dir, limit, sync, days, rate_limit):
     """Download GABC files from GregoBase."""
-    click.echo(f"Downloading GregoBase to {output_dir}")
+    from pathlib import Path
+
+    from chant_omr.data.gregobase import download_corpus
+
+    stats = download_corpus(
+        Path(output_dir),
+        limit=limit,
+        sync=sync,
+        sync_days=days,
+        rate_limit=rate_limit,
+    )
+    click.echo(
+        f"Catalog: {stats.catalog_count} | Attempted: {stats.attempted_ids} | "
+        f"Downloaded: {stats.downloaded_files} | Skipped: {stats.skipped_files} | "
+        f"Failed IDs: {stats.failed_ids}"
+    )
 
 
 @main.command()

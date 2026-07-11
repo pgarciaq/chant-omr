@@ -1,0 +1,372 @@
+"""Tests for GregoBase downloader."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import requests
+
+from chant_omr.data import gregobase as gb
+
+FIXTURES = Path(__file__).parent / "fixtures" / "gregobase"
+VALID_GABC = (FIXTURES / "respice_domine.gabc").read_bytes()
+ELEM_GABC = (FIXTURES / "haec_est_virgo.gabc").read_bytes()
+
+
+def _mock_response(
+    *,
+    content: bytes = b"",
+    text: str = "",
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+) -> MagicMock:
+    response = MagicMock(spec=requests.Response)
+    response.content = content
+    response.text = text
+    response.status_code = status_code
+    response.headers = headers or {}
+    response.encoding = "utf-8"
+    response.raise_for_status = MagicMock()
+    return response
+
+
+class TestParseCatalog:
+    def test_parse_catalog_csv(self):
+        text = (FIXTURES / "catalog.csv").read_text(encoding="utf-8")
+        entries = gb.parse_catalog_csv(text)
+        assert len(entries) == 3
+        assert entries[0] == gb.CatalogEntry(5000, "Introitus", "Respice Domine")
+        assert entries[2] == gb.CatalogEntry(18698, "", "")
+
+    def test_parse_catalog_date(self):
+        header = "attachment; filename=gregobase_2026-07-10_17-19.csv"
+        assert gb.parse_catalog_date(header) == "2026-07-10T17:19:00"
+
+
+class TestParseUpdates:
+    def test_parse_updates_html(self):
+        html = (FIXTURES / "updates.html").read_text(encoding="utf-8")
+        ids = gb.parse_updates_html(html)
+        assert ids == [20782, 5000]
+
+
+class TestGabcHelpers:
+    def test_is_valid_gabc(self):
+        assert gb.is_valid_gabc(VALID_GABC)
+        assert not gb.is_valid_gabc(b"")
+        assert not gb.is_valid_gabc(b"no marker here")
+
+    def test_content_disposition_filename(self):
+        headers = {
+            "Content-Disposition": "attachment; filename=in--respice_domine--dominican.gabc"
+        }
+        assert (
+            gb.parse_content_disposition_filename(headers)
+            == "in--respice_domine--dominican.gabc"
+        )
+
+    def test_filename_fallback(self):
+        assert gb.fallback_filename(5000, None) == "5000.gabc"
+        assert gb.fallback_filename(500, 1) == "500_elem1.gabc"
+
+    def test_is_generic_filename(self):
+        assert gb.is_generic_filename("----.gabc")
+        assert not gb.is_generic_filename("in--respice_domine--dominican.gabc")
+
+    def test_resolve_filename_generic_fallback(self, tmp_path: Path):
+        headers = {"Content-Disposition": "attachment; filename=----.gabc"}
+        digest = gb.sha256_bytes(VALID_GABC)
+        assert (
+            gb.resolve_filename(headers, 18698, None, tmp_path, digest) == "18698.gabc"
+        )
+
+    def test_resolve_filename_collision_fallback(self, tmp_path: Path):
+        existing = tmp_path / "shared.gabc"
+        existing.write_bytes(b"other content")
+        headers = {"Content-Disposition": "attachment; filename=shared.gabc"}
+        digest = gb.sha256_bytes(VALID_GABC)
+        assert gb.resolve_filename(headers, 5000, None, tmp_path, digest) == "5000.gabc"
+
+
+class TestManifest:
+    def test_save_and_load(self, tmp_path: Path):
+        manifest = gb.Manifest(
+            catalog_date="2026-07-10T17:19:00",
+            entries=[
+                gb.ManifestEntry(
+                    id=5000,
+                    elem=None,
+                    office_part="Introitus",
+                    incipit="Respice Domine",
+                    filename="in--respice_domine--dominican.gabc",
+                    sha256=gb.sha256_bytes(VALID_GABC),
+                    size_bytes=len(VALID_GABC),
+                    status="ok",
+                    source="live",
+                    error=None,
+                )
+            ],
+        )
+        path = tmp_path / "manifest.json"
+        manifest.save(path)
+        loaded = gb.Manifest.load(path)
+        assert loaded.catalog_date == manifest.catalog_date
+        assert len(loaded.entries) == 1
+        assert loaded.entries[0].id == 5000
+
+
+class TestDownloadVariants:
+    def _session_with_responses(self, responses: list[MagicMock]) -> MagicMock:
+        session = MagicMock(spec=requests.Session)
+        session.headers = {}
+        session.get = MagicMock(side_effect=responses)
+        return session
+
+    def test_download_bare_success(self, tmp_path: Path):
+        session = self._session_with_responses(
+            [
+                _mock_response(
+                    content=VALID_GABC,
+                    headers={
+                        "Content-Disposition": "attachment; filename=in--respice.gabc"
+                    },
+                ),
+                _mock_response(content=VALID_GABC),
+            ]
+        )
+        entry = gb.CatalogEntry(5000, "Introitus", "Respice Domine")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        paths, entries, skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert len(paths) == 1
+        assert paths[0].exists()
+        assert new_count == 1
+        assert entries[0].status == "ok"
+        assert entries[0].elem is None
+
+    def test_download_elem_required(self, tmp_path: Path):
+        session = self._session_with_responses(
+            [
+                _mock_response(content=b""),
+                _mock_response(
+                    content=ELEM_GABC,
+                    headers={
+                        "Content-Disposition": "attachment; filename=al--haec.gabc"
+                    },
+                ),
+                _mock_response(content=b""),
+            ]
+        )
+        entry = gb.CatalogEntry(500, "Antiphona", "Haec est virgo")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        _paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert new_count == 1
+        assert entries[0].elem == 1
+
+    def test_download_generic_content_disposition(self, tmp_path: Path):
+        session = self._session_with_responses(
+            [
+                _mock_response(
+                    content=VALID_GABC,
+                    headers={"Content-Disposition": "attachment; filename=----.gabc"},
+                ),
+                _mock_response(content=VALID_GABC),
+            ]
+        )
+        entry = gb.CatalogEntry(18698, "", "")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert new_count == 1
+        assert paths[0].name == "18698.gabc"
+        assert entries[0].filename == "18698.gabc"
+
+    def test_download_elem_dedupe(self, tmp_path: Path):
+        duplicate = VALID_GABC
+        session = self._session_with_responses(
+            [
+                _mock_response(
+                    content=duplicate,
+                    headers={"Content-Disposition": "attachment; filename=a.gabc"},
+                ),
+                _mock_response(
+                    content=duplicate,
+                    headers={"Content-Disposition": "attachment; filename=b.gabc"},
+                ),
+            ]
+        )
+        entry = gb.CatalogEntry(5000, "Introitus", "Respice Domine")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        _paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert new_count == 1
+        assert len(entries) == 1
+
+    def test_download_invalid_gabc(self, tmp_path: Path):
+        session = self._session_with_responses(
+            [_mock_response(content=b"") for _ in range(gb.MAX_ELEM + 2)]
+        )
+        entry = gb.CatalogEntry(9999, "", "Missing")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert paths == []
+        assert new_count == 0
+        assert len(entries) == 1
+        assert entries[0].status == "failed"
+        assert entries[0].error == "no valid gabc"
+
+    def test_manifest_resume(self, tmp_path: Path):
+        filename = "in--respice.gabc"
+        dest = tmp_path / filename
+        dest.write_bytes(VALID_GABC)
+        digest = gb.sha256_bytes(VALID_GABC)
+        manifest = gb.Manifest(
+            entries=[
+                gb.ManifestEntry(
+                    id=5000,
+                    elem=None,
+                    office_part="Introitus",
+                    incipit="Respice Domine",
+                    filename=filename,
+                    sha256=digest,
+                    size_bytes=len(VALID_GABC),
+                    status="ok",
+                    source="live",
+                    error=None,
+                )
+            ]
+        )
+        session = self._session_with_responses(
+            [
+                _mock_response(
+                    content=VALID_GABC,
+                    headers={"Content-Disposition": f"attachment; filename={filename}"},
+                ),
+                _mock_response(content=VALID_GABC),
+            ]
+        )
+        entry = gb.CatalogEntry(5000, "Introitus", "Respice Domine")
+        limiter = gb.RateLimiter(0)
+
+        paths, _entries, skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert skipped == 1
+        assert new_count == 0
+        assert len(paths) == 1
+
+
+class TestRateLimiter:
+    def test_rate_limit(self):
+        limiter = gb.RateLimiter(0.05)
+        start = time.monotonic()
+        limiter.wait()
+        limiter.wait()
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.05
+
+
+class TestRetry:
+    def test_retry_transient(self):
+        session = MagicMock(spec=requests.Session)
+        session.headers = {}
+        ok = _mock_response(content=b"ok")
+        err = MagicMock(spec=requests.Response)
+        err.status_code = 503
+        err.raise_for_status = MagicMock()
+        session.get = MagicMock(side_effect=[err, ok])
+
+        with patch.object(gb, "time") as mock_time:
+            mock_time.sleep = MagicMock()
+            response = gb._request_with_retries(session, "http://example.test")
+        assert response is ok
+
+
+class TestSelectCatalogIds:
+    def test_limit_flag(self):
+        catalog = [
+            gb.CatalogEntry(1, "", "a"),
+            gb.CatalogEntry(2, "", "b"),
+            gb.CatalogEntry(3, "", "c"),
+        ]
+        manifest = gb.Manifest(
+            entries=[
+                gb.ManifestEntry(
+                    id=1,
+                    elem=None,
+                    office_part="",
+                    incipit="a",
+                    filename="1.gabc",
+                    sha256="x",
+                    size_bytes=1,
+                    status="ok",
+                    source="live",
+                    error=None,
+                )
+            ]
+        )
+        selected = gb._select_catalog_ids(catalog, manifest, limit=1, sync_ids=None)
+        assert [e.id for e in selected] == [2]
+
+
+class TestDownloadCorpus:
+    def test_download_corpus_with_mocks(self, tmp_path: Path):
+        catalog_csv = (FIXTURES / "catalog.csv").read_text(encoding="utf-8")
+
+        def fake_get(url, params=None, timeout=None):
+            if url.endswith("csv.php"):
+                return _mock_response(
+                    text=catalog_csv,
+                    headers={
+                        "Content-Disposition": "attachment; filename=gregobase_2026-07-10_17-19.csv"
+                    },
+                )
+            if "download.php" in url:
+                chant_id = int(params["id"])
+                if chant_id == 5000:
+                    return _mock_response(
+                        content=VALID_GABC,
+                        headers={
+                            "Content-Disposition": "attachment; filename=in--respice.gabc"
+                        },
+                    )
+                return _mock_response(content=b"")
+            raise AssertionError(f"unexpected url {url}")
+
+        session = MagicMock(spec=requests.Session)
+        session.headers = {}
+        session.get = MagicMock(side_effect=fake_get)
+
+        with patch.object(gb, "make_session", return_value=session):
+            stats = gb.download_corpus(tmp_path, limit=1, rate_limit=0)
+
+        assert stats.attempted_ids == 1
+        assert stats.downloaded_files >= 1
+        manifest = gb.Manifest.load(tmp_path / gb.MANIFEST_FILENAME)
+        assert manifest.catalog_date == "2026-07-10T17:19:00"
+        assert any(e.id == 5000 and e.status == "ok" for e in manifest.entries)
