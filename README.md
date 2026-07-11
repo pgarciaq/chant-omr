@@ -268,6 +268,7 @@ ghh downloads the model, runs inference via OpenVINO on the user's Intel hardwar
 ## Documentation
 
 - **[PLAN.md](PLAN.md)** — technical implementation plan (spec, status, GregoBase/Gregorio details)
+- **[docs/adr/](docs/adr/README.md)** — architecture decision records (why we chose X over Y)
 - **[benchmarks/README.md](benchmarks/README.md)** — manual evaluation benchmark workflow
 - **[GitHub Issues](https://github.com/pgarciaq/chant-omr/issues)** — tracked implementation tasks
 

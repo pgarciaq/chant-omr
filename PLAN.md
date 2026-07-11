@@ -7,6 +7,7 @@ notation for use in the [ghh](https://github.com/pgarciaq/ghh) ecosystem.
 This document is the **technical spec**. [README.md](README.md) covers motivation
 and architecture comparisons. GitHub issues [#1–#15](https://github.com/pgarciaq/chant-omr/issues)
 track implementation tasks. Test strategy: [§ Testing](#testing).
+Architecture decision records: [docs/adr/](docs/adr/README.md).
 
 ## Design Principles
 
@@ -46,7 +47,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
 | 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
-| 2.2 | Transformer decoder | #10 | Pending | — |
+| 2.2 | Transformer decoder | #10 | **Done** | decoder |
 | 2.3 | Model assembly | #11 | Pending | — |
 | 3.1 | Lightning training | #12 | Pending | — |
 | 4.1 | Inference + export | #13 | Pending | — |
@@ -509,10 +510,18 @@ output = encoder(pixel_values)  # EncoderOutput: feature_map, memory, grid_size
 
 ### 2.2 Decoder (`chant_omr/model/decoder.py`)
 
-- 8 layers, d_model=512, n_heads=8, d_ff=1024
-- Causal self-attention + cross-attention to encoder patches
-- RoPE positional encoding
-- Autoregressive GABC token generation
+- 8 layers, d_model=512, n_heads=8, d_ff=1024, Pre-LN, GELU FFN
+- Causal self-attention (RoPE) + cross-attention to projected encoder memory
+- Autoregressive GABC token generation; 2D sinusoidal on patches → #11
+- Optional `encoder_attention_mask` (collate wiring → #32)
+- ADR: [docs/adr/0006-transcoda-decoder-architecture.md](docs/adr/0006-transcoda-decoder-architecture.md)
+
+```python
+from chant_omr.model.decoder import build_decoder, DecoderConfig
+
+decoder = build_decoder(DecoderConfig.from_mapping(config["model"]))
+logits = decoder(input_ids, encoder_memory)  # (B, T, vocab_size)
+```
 
 ### 2.3 Model Assembly (`chant_omr/model/chant_omr_model.py`)
 
