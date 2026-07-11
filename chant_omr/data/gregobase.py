@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import re
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from urllib.parse import urlencode
 
 import requests
 from requests import Response
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +426,7 @@ def download_variants_for_id(
         )
         new_entries.append(entry)
         saved_paths.append(dest)
-        logger.info("Saved %s (%s bytes)", filename, len(body))
+        logger.debug("Saved %s (%s bytes)", filename, len(body))
 
     if not any(e.status == "ok" for e in new_entries):
         new_entries = [
@@ -441,7 +443,7 @@ def download_variants_for_id(
                 error="no valid gabc",
             )
         ]
-        logger.warning(
+        logger.debug(
             "No valid GABC for id=%s (%s)", catalog_entry.id, catalog_entry.incipit
         )
 
@@ -491,6 +493,14 @@ def make_session() -> requests.Session:
     return session
 
 
+def _status_message(message: str, *, show_progress: bool) -> None:
+    """Print a status line; use tqdm.write when a bar is active."""
+    if show_progress:
+        tqdm.write(message, file=sys.stderr)
+    else:
+        print(message, file=sys.stderr, flush=True)
+
+
 def download_corpus(
     output_dir: Path,
     *,
@@ -498,6 +508,7 @@ def download_corpus(
     sync: bool = False,
     sync_days: int | None = None,
     rate_limit: float = DEFAULT_RATE_LIMIT,
+    show_progress: bool = False,
 ) -> DownloadStats:
     """Download GABC corpus from GregoBase into ``output_dir``."""
     output_dir = Path(output_dir)
@@ -506,15 +517,29 @@ def download_corpus(
     manifest = Manifest.load(manifest_path)
 
     session = make_session()
+    _status_message("Fetching catalog from csv.php ...", show_progress=show_progress)
     catalog, catalog_date = fetch_catalog(session)
     if catalog_date:
         manifest.catalog_date = catalog_date
+    _status_message(
+        f"Catalog: {len(catalog)} chants"
+        + (f" (snapshot {catalog_date})" if catalog_date else ""),
+        show_progress=show_progress,
+    )
 
     sync_ids: list[int] | None = None
     if sync:
+        days_label = sync_days if sync_days is not None else "default"
+        _status_message(
+            f"Fetching updates.php (days={days_label}) ...",
+            show_progress=show_progress,
+        )
         sync_ids = fetch_updates(session, sync_days)
         manifest.last_sync_date = datetime.now(UTC).replace(microsecond=0).isoformat()
-        logger.info("updates.php: %s unique IDs to refresh", len(sync_ids))
+        _status_message(
+            f"updates.php: {len(sync_ids)} unique IDs to refresh",
+            show_progress=show_progress,
+        )
 
     to_process = _select_catalog_ids(catalog, manifest, limit=limit, sync_ids=sync_ids)
     rate_limiter = RateLimiter(rate_limit)
@@ -524,7 +549,41 @@ def download_corpus(
     failed_ids = 0
     paths: list[Path] = []
 
-    for catalog_entry in to_process:
+    if not to_process:
+        _status_message("Nothing to download — corpus is up to date.", show_progress=show_progress)
+    else:
+        corpus_done = len(manifest.ids_with_success())
+        _status_message(
+            f"Downloading {len(to_process)} IDs "
+            f"({corpus_done}/{len(catalog)} already complete) ...",
+            show_progress=show_progress,
+        )
+
+    progress_bar: tqdm | None = None
+    entries_iter: list[CatalogEntry] | tqdm = to_process
+    if show_progress and to_process:
+        corpus_done = len(manifest.ids_with_success())
+        progress_bar = tqdm(
+            to_process,
+            desc="GregoBase",
+            unit="id",
+            dynamic_ncols=True,
+            file=sys.stderr,
+            mininterval=0.5,
+            bar_format=(
+                "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} "
+                "[{elapsed}<{remaining}, {rate_fmt}] {postfix}"
+            ),
+        )
+        progress_bar.set_postfix(
+            corpus=f"{corpus_done}/{len(catalog)}",
+            files=0,
+            fail=0,
+            refresh=False,
+        )
+        entries_iter = progress_bar
+
+    for catalog_entry in entries_iter:
         manifest.remove_entries_for_id(catalog_entry.id)
         saved, entries, skipped, new_count = download_variants_for_id(
             session,
@@ -541,8 +600,26 @@ def download_corpus(
             paths.extend(saved)
         else:
             failed_ids += 1
+            label = catalog_entry.incipit or str(catalog_entry.id)
+            message = f"No valid GABC for id={catalog_entry.id} ({label})"
+            if progress_bar is not None:
+                progress_bar.write(message)
+            else:
+                logger.warning(message)
 
         manifest.save(manifest_path)
+
+        if progress_bar is not None:
+            corpus_done = len(manifest.ids_with_success())
+            progress_bar.set_postfix(
+                corpus=f"{corpus_done}/{len(catalog)}",
+                files=downloaded_files,
+                fail=failed_ids,
+                refresh=False,
+            )
+
+    if progress_bar is not None:
+        progress_bar.close()
 
     return DownloadStats(
         catalog_count=len(catalog),

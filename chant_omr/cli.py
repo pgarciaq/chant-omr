@@ -52,11 +52,27 @@ def export(checkpoint, fmt, output_dir):
     show_default=True,
     help="Seconds between download.php requests",
 )
-def download(output_dir, limit, sync, days, rate_limit):
+@click.option("--no-progress", is_flag=True, help="Disable the download progress bar")
+@click.option(
+    "--progress",
+    is_flag=True,
+    help="Force the progress bar even when stderr is not a TTY",
+)
+def download(output_dir, limit, sync, days, rate_limit, no_progress, progress):
     """Download GABC files from GregoBase."""
+    import sys
     from pathlib import Path
 
     from chant_omr.data.gregobase import download_corpus
+
+    if no_progress and progress:
+        raise click.ClickException("Use only one of --progress or --no-progress.")
+    if progress:
+        show_progress = True
+    elif no_progress:
+        show_progress = False
+    else:
+        show_progress = sys.stderr.isatty()
 
     stats = download_corpus(
         Path(output_dir),
@@ -64,6 +80,7 @@ def download(output_dir, limit, sync, days, rate_limit):
         sync=sync,
         sync_days=days,
         rate_limit=rate_limit,
+        show_progress=show_progress,
     )
     click.echo(
         f"Catalog: {stats.catalog_count} | Attempted: {stats.attempted_ids} | "
