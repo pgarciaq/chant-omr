@@ -14,6 +14,7 @@ The parser extracts:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,3 +98,57 @@ def is_nabc_notation(text: str) -> bool:
     except ValueError:
         return False
     return bool(NABC_NEUME_RE.search(body))
+
+
+DEFAULT_MIN_BODY_LEN = 20
+
+
+def plain_gabc_reject_reason(raw: bytes, *, min_body_len: int = DEFAULT_MIN_BODY_LEN) -> str | None:
+    """Return why ``raw`` is not plain trainable GABC, or ``None`` if usable."""
+    reason = gabc_reject_reason(raw)
+    if reason:
+        return reason
+    text = raw.decode("utf-8", errors="replace")
+    if is_nabc_notation(text):
+        return "nabc notation"
+    try:
+        body = extract_gabc_body(text)
+    except ValueError:
+        return "empty gabc body"
+    if len(body) < min_body_len:
+        return "body too short"
+    return None
+
+
+def iter_plain_gabc_bodies(
+    gabc_dir: Path,
+    manifest: object | None = None,
+    *,
+    min_body_len: int = DEFAULT_MIN_BODY_LEN,
+) -> Iterator[tuple[Path, str]]:
+    """Yield ``(path, body)`` for plain trainable GABC files.
+
+    When *manifest* is provided (a :class:`~chant_omr.data.gregobase.Manifest`),
+    only ``status: ok`` entries with an on-disk ``filename`` are considered.
+    Otherwise every ``*.gabc`` file directly under *gabc_dir* is scanned.
+    """
+    gabc_dir = Path(gabc_dir)
+
+    if manifest is not None:
+        for entry in manifest.entries:
+            if entry.status != "ok" or not entry.filename:
+                continue
+            path = gabc_dir / entry.filename
+            if not path.is_file():
+                continue
+            raw = path.read_bytes()
+            if plain_gabc_reject_reason(raw, min_body_len=min_body_len):
+                continue
+            yield path, extract_gabc_body(raw.decode("utf-8"))
+        return
+
+    for path in sorted(gabc_dir.glob("*.gabc")):
+        raw = path.read_bytes()
+        if plain_gabc_reject_reason(raw, min_body_len=min_body_len):
+            continue
+        yield path, extract_gabc_body(raw.decode("utf-8"))

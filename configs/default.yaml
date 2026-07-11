@@ -3,6 +3,7 @@
 data:
   gabc_dir: data/gregobase/
   rendered_dir: data/rendered/
+  tokenizer_dir: data/tokenizer/
   train_split: 0.9
   val_split: 0.1
   target_width: 1050

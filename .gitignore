@@ -24,6 +24,7 @@ outputs/
 data/gregobase/
 data/rendered/
 data/augmented/
+data/tokenizer/
 
 # Models (large, uploaded to HuggingFace)
 models/*.safetensors

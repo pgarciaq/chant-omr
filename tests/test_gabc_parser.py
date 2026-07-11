@@ -6,6 +6,7 @@ from chant_omr.data.gabc_parser import (
     gabc_reject_reason,
     is_nabc_notation,
     parse_gabc,
+    plain_gabc_reject_reason,
 )
 
 
@@ -65,3 +66,17 @@ class TestGabcValidation:
 
     def test_nabc_not_supported_constant(self):
         assert "NABC" in NABC_NOT_SUPPORTED
+
+
+class TestPlainGabcFilter:
+    def test_plain_gabc_reject_reason_nabc(self):
+        text = "name: x;\n%%\n(c4) AL(e|/ta)le(g)ia.(g)"
+        assert plain_gabc_reject_reason(text.encode()) == "nabc notation"
+
+    def test_plain_gabc_reject_reason_short_body(self):
+        text = "name: x;\n%%\n(c4) Ky"
+        assert plain_gabc_reject_reason(text.encode(), min_body_len=20) == "body too short"
+
+    def test_plain_gabc_reject_reason_ok(self):
+        text = "name: x;\n%%\n(c4) Ky(f)ri(gf)e(h) *(;) e(ixhi)lé(h)i(g)son.(f)"
+        assert plain_gabc_reject_reason(text.encode()) is None

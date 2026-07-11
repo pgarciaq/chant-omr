@@ -39,7 +39,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.1 | GregoBase downloader | #5 | **Done** | 24 (gregobase) |
 | 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
 | 1.2 | Gregorio renderer | #6 | **Done** | renderer |
-| 1.3 | BPE tokenizer | #7 | Pending | — |
+| 1.3 | BPE tokenizer | #7 | **Done** | tokenizer |
 | 1.4 | Dataset + augmentation | #8 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | Pending | — |
 | 2.2 | Transformer decoder | #10 | Pending | — |
@@ -309,15 +309,25 @@ chant-omr render --dpi 300 --workers 1        # defaults
 - Train on GABC **body** fields (after final `%%`) via `gabc_parser.py`
 - **Plain corpus only:** exclude NABC (`is_nabc_notation()`) and empty bodies — same
   filter as renderer (#21); see [Epic 5](#epic-5-nabc-notation-support-deferred)
+- Skip bodies shorter than 20 characters (clef-only stubs)
+- Corpus scope: all manifest `ok` entries under `data/gregobase/` (not limited to
+  rendered PNGs — more text improves BPE merges)
 - Vocab size 2048 (`configs/default.yaml`)
-- Save to `data/tokenizer/`
-- Inference must output full GABC: headers + `%%` + body
+- Special tokens: `<pad>`, `<bos>`, `<eos>`, `<unk>`
+- Save to `data/tokenizer/` (`tokenizer.json` + `meta.json`)
+- Inference must output full GABC: headers + `%%` + body (headers added outside tokenizer)
 
 GABC is glyph-compositional: `(gf)` is two glyphs, not a token named "podatus".
 BPE learns character/subword patterns efficiently.
 
 **Encoding ambiguity:** Multiple valid GABC strings can represent the same visual
 (salicus, porrectus flexus). Tokenizer handles all; evaluation needs tolerance.
+
+```bash
+chant-omr train-tokenizer                              # manifest ok plain GABC
+chant-omr train-tokenizer --gabc-dir data/gregobase/   # explicit corpus dir
+python scripts/train_tokenizer.py --vocab-size 2048      # standalone script
+```
 
 ### 1.4 Dataset + Augmentation (`chant_omr/data/dataset.py`, `augmentation.py`)
 

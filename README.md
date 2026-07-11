@@ -145,7 +145,22 @@ sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
 python scripts/render_dataset.py --gabc-dir data/gregobase/ --output data/rendered/
 ```
 
-### Step 3: Domain augmentation
+### Step 3: Train BPE tokenizer
+
+A byte-pair encoding tokenizer learns subword patterns over GABC **bodies** (the
+neume text after the final `%%`). Headers are not tokenized; inference prepends
+them when writing a full `.gabc` file.
+
+```bash
+chant-omr train-tokenizer
+# or
+python scripts/train_tokenizer.py --gabc-dir data/gregobase/ --output-dir data/tokenizer/
+```
+
+Artifacts are saved to `data/tokenizer/` (`tokenizer.json` + training metadata).
+NABC notation and empty bodies are excluded from the training corpus.
+
+### Step 4: Domain augmentation
 
 Clean Gregorio renders look nothing like photographs of 300-year-old parchment manuscripts. Augmentation bridges this domain gap during training:
 
@@ -159,7 +174,7 @@ Clean Gregorio renders look nothing like photographs of 300-year-old parchment m
 
 Augmentation is applied on-the-fly during training (not pre-computed) for maximum diversity.
 
-### Step 4: Benchmark set (manual)
+### Step 5: Benchmark set (manual)
 
 Real-world evaluation requires manually transcribing 20-30 pages from each book into GABC. These are stored in `benchmarks/` and never used for training. See [`benchmarks/README.md`](benchmarks/README.md).
 
@@ -185,6 +200,7 @@ pip install -e .
 # Prepare data (if not pre-uploaded)
 python scripts/download_gregobase.py
 python scripts/render_dataset.py
+python scripts/train_tokenizer.py
 
 # Train
 python scripts/train.py --config configs/default.yaml --precision bf16-mixed

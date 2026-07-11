@@ -153,6 +153,55 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
     )
 
 
+@main.command("train-tokenizer")
+@click.option("--gabc-dir", type=click.Path(exists=True), default="data/gregobase/")
+@click.option("--output-dir", type=click.Path(), default="data/tokenizer/")
+@click.option("--vocab-size", type=int, default=None, help="Override config model.vocab_size")
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
+@click.option(
+    "--min-body-len",
+    type=int,
+    default=20,
+    show_default=True,
+    help="Skip GABC bodies shorter than this many characters",
+)
+@click.option(
+    "--no-manifest",
+    is_flag=True,
+    help="Train on all plain .gabc files, ignoring manifest.json status",
+)
+def train_tokenizer_cmd(gabc_dir, output_dir, vocab_size, config, min_body_len, no_manifest):
+    """Train a BPE tokenizer on plain GABC bodies."""
+    from pathlib import Path
+
+    import yaml
+
+    from chant_omr.model.tokenizer import DEFAULT_VOCAB_SIZE, train_tokenizer
+
+    config_path = Path(config)
+    target_vocab = vocab_size
+    if target_vocab is None and config_path.is_file():
+        with config_path.open(encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        target_vocab = int(cfg.get("model", {}).get("vocab_size", DEFAULT_VOCAB_SIZE))
+    if target_vocab is None:
+        target_vocab = DEFAULT_VOCAB_SIZE
+
+    tokenizer = train_tokenizer(
+        Path(gabc_dir),
+        vocab_size=target_vocab,
+        output_dir=Path(output_dir),
+        min_body_len=min_body_len,
+        use_manifest=not no_manifest,
+    )
+    click.echo(
+        f"Corpus trained | vocab={tokenizer.vocab_size} | "
+        f"pad={tokenizer.pad_id} bos={tokenizer.bos_id} "
+        f"eos={tokenizer.eos_id} unk={tokenizer.unk_id}"
+    )
+    click.echo(f"Artifacts: {Path(output_dir).resolve()}")
+
+
 @main.command()
 @click.argument("model_path", type=click.Path(exists=True))
 @click.option("--test-dir", type=click.Path(exists=True), default="benchmarks/")
