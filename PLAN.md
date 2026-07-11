@@ -6,7 +6,7 @@ notation for use in the [ghh](https://github.com/pgarciaq/ghh) ecosystem.
 
 This document is the **technical spec**. [README.md](README.md) covers motivation
 and architecture comparisons. GitHub issues [#1–#15](https://github.com/pgarciaq/chant-omr/issues)
-track implementation tasks.
+track implementation tasks. Test strategy: [§ Testing](#testing).
 
 ## Design Principles
 
@@ -502,6 +502,76 @@ Primary config: [configs/default.yaml](configs/default.yaml)
 | `model` | `encoder_variant: convnextv2_tiny`, `d_model: 512`, `vocab_size: 2048` |
 | `training` | `epochs: 50`, `batch_size: 8`, `learning_rate: 1e-4` |
 | `inference` | `beam_width: 3`, `repetition_penalty: 1.1` |
+
+---
+
+## Testing
+
+Test strategy lives in this plan; each GitHub issue has a `## Tests` checklist.
+See [PLAN.md § Testing](https://github.com/pgarciaq/chant-omr/blob/master/PLAN.md#testing).
+
+### Test pyramid
+
+| Layer | What | Where | CI? |
+|-------|------|-------|-----|
+| **Unit** | Mocked I/O, pure functions, model forward passes | `tests/test_*.py` | Always |
+| **Component smoke** | Gregorio render, live GregoBase fetch, training step | Manual / optional local | No |
+| **Integration gate** | Overfit smoke test (#12) | `scripts/train.py` | Manual pre-GPU |
+| **Evaluation** | Benchmark metrics on real scans | `scripts/evaluate.py`, `benchmarks/` | Manual post-training |
+| **Cross-repo** | `ghh omr` consumer | ghh repo (#15) | Manual |
+
+**CI policy:** `pytest` + `ruff check chant_omr tests scripts`. **No network**
+in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
+`tests/fixtures/`.
+
+### Per-step test matrix
+
+| Step | Issue | Test file | Unit (CI) | Manual gate |
+|------|-------|-----------|-----------|-------------|
+| 0 | — | `test_gabc_parser.py` | 5 parser tests | — |
+| 1.1 | #5 | `test_gregobase.py` | Catalog, elem, updates, manifest, rate limit | `download --limit 50` live |
+| 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 files |
+| 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
+| 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant entries | DataLoader batch |
+| 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |
+| 2.2 | #10 | `test_decoder.py` | Forward pass, causal mask | — |
+| 2.3 | #11 | `test_model.py` | E2E forward, param count ~59M | — |
+| 3.1 | #12 | `test_lightning.py` | One training step on synthetic batch | Overfit 10 samples |
+| 4.1 | #13 | `test_predict.py`, `test_export.py` | GABC output parses; export artifacts exist | Predict on rendered PNG |
+| 4.2 | #14 | `test_evaluate.py` | Metrics on fixture pairs; empty dir no-op | Run on `benchmarks/` |
+| 4.3 | #15 | — (ghh repo) | — | `ghh omr` end-to-end |
+
+### #5 unit tests (`tests/test_gregobase.py`)
+
+Fixtures in `tests/fixtures/gregobase/`: sample CSV, `updates.php` HTML snippet,
+GABC response bodies (bare, elem=1, duplicate SHA).
+
+| Test | Verifies |
+|------|----------|
+| `test_parse_catalog_csv` | Quoted CSV fields; empty `office-part`/`incipit` rows |
+| `test_parse_catalog_date` | `Content-Disposition` filename → ISO `catalog_date` |
+| `test_download_bare_success` | Valid GABC → `status: ok`, `elem: null` |
+| `test_download_elem_required` | bare=0 → elem=1 succeeds |
+| `test_download_elem_dedupe` | bare + elem=1 same SHA256 → one saved file |
+| `test_download_multi_variant` | Distinct elem SHA256s → separate manifest entries |
+| `test_download_invalid_gabc` | Empty / no `%%` → `status: failed`, run continues |
+| `test_content_disposition_filename` | Parse `filename=` from header |
+| `test_filename_fallback` | Missing header → `{id}[_elem{N}].gabc` |
+| `test_parse_updates_html` | Unique IDs from HTML `<a href="chant.php?id=">` |
+| `test_manifest_resume` | Skip `status: ok` with matching on-disk SHA256 |
+| `test_rate_limit` | N requests respect `--rate-limit` delay |
+| `test_retry_transient` | 503 then 200 succeeds after backoff |
+| `test_limit_flag` | `--limit N` processes N incomplete catalog IDs only |
+
+### Release gates (manual)
+
+| Gate | When | Command / criterion |
+|------|------|---------------------|
+| Downloader smoke | Close #5 | `chant-omr download --limit 50` + resume on re-run |
+| Renderer batch | Close #6 | >90% render success on 50 GABC files |
+| Pipeline smoke | Close #12 | Overfit 10 samples, loss → ~0 |
+| Benchmark eval | Close #14 | `evaluate` prints GED + neume accuracy |
+| Consumer | Close #15 | `ghh omr` writes `.gabc` on dewarped page |
 
 ---
 
