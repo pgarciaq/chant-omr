@@ -149,6 +149,10 @@ listed in the previous manifest rows for that ID.
 filenames; resume works via manifest paths. IDs re-fetched after #17 use id-based
 names and drop orphan slugs on disk.
 
+**GABC validation:** downloads require non-whitespace text after the final `%%`
+(rejects GregoBase stubs like `name:;\n%%\n`). Re-fetch updates `status: failed`
+for IDs that were previously saved as empty shells.
+
 **Polite download (rate limiting):**
 
 The downloader **must implement** rate limiting explicitly — GregoBase does not
@@ -159,7 +163,7 @@ throttle for you. v0 behavior:
 | Delay between `download.php` requests | 1.0 s | `--rate-limit 1.0` |
 | Parallelism | None (sequential only) | — |
 | Transient errors (429, 503, timeout) | Exponential backoff, 3 retries | — |
-| Permanent errors (empty body, no `%%`) | Log, `status: failed`, continue | — |
+| Permanent errors (empty body, no `%%`, empty after `%%`) | Log, `status: failed`, continue | — |
 
 `csv.php` and `updates.php` are single requests (no rate limit between them and
 downloads beyond the per-download delay). At 1 req/s, a full ~20k catalog fetch
@@ -267,7 +271,8 @@ data/rendered/
 ```
 
 **Failure handling:** append to `render_failures.jsonl`, skip and continue. Target >90% render
-success. Expect failures from broken GABC, NABC scores needing `nabc-lines:1;`, TeX sections.
+success on **plain GABC** batches. NABC notation is skipped explicitly (`NABC notation not
+supported in v0`). Expect failures from broken GABC and TeX edge cases.
 
 **CLI (v0):**
 
@@ -644,7 +649,8 @@ ruff check chant_omr tests scripts
 **System deps (rendering):**
 
 ```bash
-sudo dnf install texlive-gregoriotex texlive-luatex poppler-utils
+sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
+  texlive-metapost poppler-utils
 ```
 
 ---

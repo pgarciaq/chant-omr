@@ -27,7 +27,13 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from chant_omr.data.gabc_parser import load_gabc, parse_gabc
+from chant_omr.data.gabc_parser import (
+    NABC_NOT_SUPPORTED,
+    extract_gabc_body,
+    is_nabc_notation,
+    load_gabc,
+    parse_gabc,
+)
 from chant_omr.data.gregobase import MANIFEST_FILENAME, Manifest, ManifestEntry, disk_filename
 
 logger = logging.getLogger(__name__)
@@ -122,14 +128,7 @@ def has_double_header(text: str) -> bool:
 
 def extract_render_body(text: str) -> str:
     """Return neume text after the final ``%%`` marker."""
-    parts = text.split("%%")
-    if len(parts) < 2:
-        body = text.strip()
-    else:
-        body = parts[-1].strip()
-    if not body:
-        raise ValueError("empty GABC body")
-    return body
+    return extract_gabc_body(text)
 
 
 def body_only_gabc_text(text: str, *, name: str) -> str:
@@ -245,6 +244,9 @@ def render_gabc_to_image(
         raise RuntimeError("Gregorio toolchain not available (gregorio, lualatex, pdftoppm)")
 
     raw_text = gabc_path.read_text(encoding="utf-8")
+    if is_nabc_notation(raw_text):
+        raise ValueError(NABC_NOT_SUPPORTED)
+
     score = load_gabc(gabc_path)
 
     label = display_name or score.name or gabc_path.stem
@@ -303,6 +305,9 @@ def _render_job(
 
     try:
         raw_text = job.gabc_path.read_text(encoding="utf-8")
+        if is_nabc_notation(raw_text):
+            raise ValueError(NABC_NOT_SUPPORTED)
+
         body_text = body_only_gabc_text(raw_text, name=job.entry.incipit or job.gabc_path.stem)
         stem = work_score_stem(job.entry.id, job.entry.elem)
         render_gabc_to_image(

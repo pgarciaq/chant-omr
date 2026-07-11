@@ -10,6 +10,7 @@ import pytest
 
 from chant_omr.data import gregobase as gb
 from chant_omr.data import renderer as rd
+from chant_omr.data.gabc_parser import NABC_NOT_SUPPORTED
 
 FIXTURES = Path(__file__).parent / "fixtures" / "gregobase"
 RESPICE_GABC = FIXTURES / "respice_domine.gabc"
@@ -103,6 +104,36 @@ class TestRenderJobs:
 
 
 class TestRenderCorpusMocked:
+    def test_nabc_not_supported(self, tmp_path: Path):
+        gabc_dir = tmp_path / "gregobase"
+        rendered_dir = tmp_path / "rendered"
+        gabc_dir.mkdir()
+        (gabc_dir / "16305.gabc").write_bytes((FIXTURES / "nabc_sample.gabc").read_bytes())
+        manifest = gb.Manifest(
+            entries=[
+                gb.ManifestEntry(
+                    id=16305,
+                    elem=None,
+                    office_part="Alleluia",
+                    incipit="NABC sample",
+                    filename="16305.gabc",
+                    sha256="abc",
+                    size_bytes=100,
+                    status="ok",
+                    source="fixture",
+                    error=None,
+                )
+            ]
+        )
+        manifest.save(gabc_dir / gb.MANIFEST_FILENAME)
+
+        with patch.object(rd, "toolchain_available", return_value=True):
+            stats = rd.render_corpus(gabc_dir, rendered_dir, show_progress=False)
+
+        assert stats.failed == 1
+        failures = (rendered_dir / rd.FAILURES_FILENAME).read_text(encoding="utf-8")
+        assert NABC_NOT_SUPPORTED in failures
+
     def test_missing_gabc_logs_failure(self, tmp_path: Path):
         gabc_dir = tmp_path / "gregobase"
         rendered_dir = tmp_path / "rendered"

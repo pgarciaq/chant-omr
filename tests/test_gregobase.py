@@ -57,6 +57,7 @@ class TestGabcHelpers:
         assert gb.is_valid_gabc(VALID_GABC)
         assert not gb.is_valid_gabc(b"")
         assert not gb.is_valid_gabc(b"no marker here")
+        assert not gb.is_valid_gabc(b"name:;\n%%\n")
 
     def test_content_disposition_filename(self):
         headers = {
@@ -351,7 +352,26 @@ class TestDownloadVariants:
         assert new_count == 0
         assert len(entries) == 1
         assert entries[0].status == "failed"
-        assert entries[0].error == "no valid gabc"
+        assert entries[0].error == "empty body"
+
+    def test_download_empty_body_stub(self, tmp_path: Path):
+        stub = b"name:;\n%%\n"
+        session = self._session_with_responses(
+            [_mock_response(content=stub) for _ in range(gb.MAX_ELEM + 2)]
+        )
+        entry = gb.CatalogEntry(18698, "", "")
+        manifest = gb.Manifest()
+        limiter = gb.RateLimiter(0)
+
+        paths, entries, _skipped, new_count = gb.download_variants_for_id(
+            session, entry, tmp_path, manifest, rate_limiter=limiter
+        )
+
+        assert paths == []
+        assert new_count == 0
+        assert len(entries) == 1
+        assert entries[0].status == "failed"
+        assert entries[0].error == "empty gabc body"
 
     def test_manifest_resume(self, tmp_path: Path):
         filename = "5000.gabc"

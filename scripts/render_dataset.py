@@ -2,8 +2,8 @@
 """Render GABC files into score images using Gregorio + LuaLaTeX.
 
 Prerequisites:
-    sudo dnf install texlive-gregoriotex texlive-luatex poppler-utils
-    sudo dnf install texlive-libertinus-fonts  # Libertinus Serif for fontspec
+    sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
+      texlive-metapost poppler-utils
 
 Usage:
     python scripts/render_dataset.py --gabc-dir data/gregobase/ --output data/rendered/

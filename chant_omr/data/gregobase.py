@@ -27,6 +27,8 @@ import requests
 from requests import Response
 from tqdm import tqdm
 
+from chant_omr.data.gabc_parser import gabc_reject_reason
+
 logger = logging.getLogger(__name__)
 
 GREGOBASE_BASE = "https://gregobase.selapa.net"
@@ -194,7 +196,7 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def is_valid_gabc(body: bytes) -> bool:
-    return bool(body) and b"%%" in body
+    return gabc_reject_reason(body) is None
 
 
 def parse_catalog_date(content_disposition: str | None) -> str | None:
@@ -368,6 +370,7 @@ def download_variants_for_id(
     skipped = 0
     new_downloads = 0
     seen_hashes: set[str] = set()
+    last_reject: str | None = None
 
     for elem in [None, *range(1, MAX_ELEM + 1)]:
         body, headers, status_code = fetch_gabc_variant(
@@ -378,6 +381,9 @@ def download_variants_for_id(
         )
 
         if not is_valid_gabc(body):
+            reason = gabc_reject_reason(body)
+            if reason:
+                last_reject = reason
             if elem is not None and not body:
                 break
             continue
@@ -431,7 +437,7 @@ def download_variants_for_id(
                 size_bytes=None,
                 status="failed",
                 source="live",
-                error="no valid gabc",
+                error=last_reject or "no valid gabc",
             )
         ]
         logger.debug(

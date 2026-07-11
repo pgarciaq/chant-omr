@@ -13,8 +13,12 @@ The parser extracts:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+NABC_NEUME_RE = re.compile(r"\([^()]*\|[^()]*\)")
+NABC_NOT_SUPPORTED = "NABC notation not supported in v0"
 
 
 @dataclass
@@ -56,3 +60,40 @@ def load_gabc(path: Path) -> GABCScore:
     score = parse_gabc(text)
     score.path = path
     return score
+
+
+def extract_gabc_body(text: str) -> str:
+    """Return neume text after the final ``%%`` marker."""
+    parts = text.split("%%")
+    if len(parts) < 2:
+        body = text.strip()
+    else:
+        body = parts[-1].strip()
+    if not body:
+        raise ValueError("empty GABC body")
+    return body
+
+
+def gabc_reject_reason(body: bytes) -> str | None:
+    """Return why ``body`` is not a usable GABC file, or ``None`` if valid."""
+    if not body:
+        return "empty body"
+    text = body.decode("utf-8", errors="replace")
+    if "%%" not in text:
+        return "missing %%"
+    try:
+        extract_gabc_body(text)
+    except ValueError:
+        return "empty gabc body"
+    return None
+
+
+def is_nabc_notation(text: str) -> bool:
+    """Return True when the score uses NABC pipe annotations."""
+    if "nabc-lines" in text.lower():
+        return True
+    try:
+        body = extract_gabc_body(text)
+    except ValueError:
+        return False
+    return bool(NABC_NEUME_RE.search(body))

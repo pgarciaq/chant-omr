@@ -137,8 +137,9 @@ python scripts/download_gregobase.py --output data/gregobase/
 [Gregorio](https://gregorio-project.github.io/) is a TeX package that typesets GABC into beautiful square notation scores. Each GABC file is rendered to a clean PNG image, creating automatic (image, GABC) training pairs.
 
 ```bash
-# Install Gregorio (Fedora)
-sudo dnf install texlive-gregoriotex texlive-luatex poppler-utils
+# Fedora: Gregorio + LuaLaTeX + fonts + PDF conversion + Metapost (some scores)
+sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
+  texlive-metapost poppler-utils
 
 # Render all GABC files
 python scripts/render_dataset.py --gabc-dir data/gregobase/ --output data/rendered/
@@ -301,10 +302,26 @@ For reference, Transcoda achieves 18.5% OMR-NED on synthetic modern notation and
 ## Development
 
 ```bash
+python3.13 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ruff check chant_omr tests scripts
 ```
+
+**System deps (rendering only):**
+
+```bash
+sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
+  texlive-metapost poppler-utils
+```
+
+| Package | Purpose |
+|---------|---------|
+| `texlive-gregoriotex` | Gregorio / `gregoriotex` (GABC → score) |
+| `texlive-luatex` | `lualatex -shell-escape` (autocompile) |
+| `texlive-libertinus-fonts` | Libertinus Serif via `fontspec` |
+| `texlive-metapost` | `plain.mp` for scores using Metapost/luamplib |
+| `poppler-utils` | `pdftoppm` (PDF → PNG) |
 
 ## License
 
