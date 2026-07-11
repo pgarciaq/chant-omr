@@ -28,6 +28,21 @@ class TestGabcHelpers:
         assert "office-part:" not in body
         assert "(c4) Re(f)spi(g)ce" in body
 
+    def test_body_only_gabc_text_multi_header(self):
+        raw = (FIXTURES / "double_header.gabc").read_text(encoding="utf-8")
+        body = rd.body_only_gabc_text(raw, name="Auribus")
+        assert "%%" not in body.split("%%", 1)[1]  # no second marker in output
+        assert "(c3)AU(h)ri(h)bus" in body
+        assert "annotation:" not in body
+
+    def test_extract_render_body(self):
+        raw = (FIXTURES / "double_header.gabc").read_text(encoding="utf-8")
+        assert rd.extract_render_body(raw).startswith("(c3)AU")
+
+    def test_work_score_stem(self):
+        assert rd.work_score_stem(20779, None) == "20779"
+        assert rd.work_score_stem(500, 1) == "500_elem1"
+
     def test_png_filename(self):
         assert rd.png_filename(5000, None) == "5000.png"
         assert rd.png_filename(500, 1) == "500_elem1.png"
@@ -124,6 +139,23 @@ class TestRenderIntegration:
     def test_render_fixture_gabc(self, tmp_path: Path):
         gabc_path = tmp_path / "5000.gabc"
         gabc_path.write_bytes(RESPICE_GABC.read_bytes())
+        output = tmp_path / "5000.png"
+        rd.render_gabc_to_image(gabc_path, output, dpi=150)
+        assert output.exists()
+        assert output.stat().st_size > 1000
+
+    def test_render_legacy_slug_with_id_stem(self, tmp_path: Path):
+        slug_name = "--factum_est_autem--carmelite_tradition_p.81.gabc"
+        gabc_path = tmp_path / slug_name
+        gabc_path.write_bytes(RESPICE_GABC.read_bytes())
+        output = tmp_path / "20779.png"
+        rd.render_gabc_to_image(gabc_path, output, dpi=150, score_stem="20779")
+        assert output.exists()
+        assert output.stat().st_size > 1000
+
+    def test_render_multi_header_gabc(self, tmp_path: Path):
+        gabc_path = tmp_path / "5000.gabc"
+        gabc_path.write_bytes((FIXTURES / "double_header.gabc").read_bytes())
         output = tmp_path / "5000.png"
         rd.render_gabc_to_image(gabc_path, output, dpi=150)
         assert output.exists()

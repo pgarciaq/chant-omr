@@ -110,16 +110,34 @@ def png_filename(chant_id: int, elem: int | None) -> str:
     return disk_filename(chant_id, elem).removesuffix(".gabc") + ".png"
 
 
+def work_score_stem(chant_id: int, elem: int | None) -> str:
+    """Gregorio autocompile stem; always id-based regardless of on-disk slug."""
+    return disk_filename(chant_id, elem).removesuffix(".gabc")
+
+
 def has_double_header(text: str) -> bool:
     """Return True when the GABC contains more than one ``%%`` marker."""
     return text.count("%%") > 1
+
+
+def extract_render_body(text: str) -> str:
+    """Return neume text after the final ``%%`` marker."""
+    parts = text.split("%%")
+    if len(parts) < 2:
+        body = text.strip()
+    else:
+        body = parts[-1].strip()
+    if not body:
+        raise ValueError("empty GABC body")
+    return body
 
 
 def body_only_gabc_text(text: str, *, name: str) -> str:
     """Strip headers and rebuild a minimal body-only GABC for rendering."""
     score = parse_gabc(text)
     display_name = name.strip() or score.name or "chant"
-    return f"name: {display_name};\n%%\n{score.body}\n"
+    body = extract_render_body(text)
+    return f"name: {display_name};\n%%\n{body}\n"
 
 
 def build_nomargin_tex(score_stem: str, *, hsize: str = SCORE_HSIZE) -> str:
@@ -220,42 +238,38 @@ def render_gabc_to_image(
     dpi: int = DEFAULT_DPI,
     work_dir: Path | None = None,
     display_name: str | None = None,
+    score_stem: str | None = None,
 ) -> Path:
     """Render one GABC file to a tight-crop PNG via Gregorio autocompile."""
     if not toolchain_available():
         raise RuntimeError("Gregorio toolchain not available (gregorio, lualatex, pdftoppm)")
 
     raw_text = gabc_path.read_text(encoding="utf-8")
-    if has_double_header(raw_text):
-        raise ValueError("double GABC header (multiple %% markers)")
-
     score = load_gabc(gabc_path)
-    if not score.body:
-        raise ValueError("empty GABC body")
 
     label = display_name or score.name or gabc_path.stem
     body_text = body_only_gabc_text(raw_text, name=label)
-    score_stem = gabc_path.stem
+    stem = score_stem or gabc_path.stem
 
     cleanup = work_dir is None
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp(prefix="chant-omr-render-"))
 
     try:
-        gabc_work = work_dir / f"{score_stem}.gabc"
+        gabc_work = work_dir / f"{stem}.gabc"
         tex_path = work_dir / NOMARGIN_TEX_NAME
         pdf_path = work_dir / NOMARGIN_TEX_NAME.replace(".tex", ".pdf")
 
         gabc_work.write_text(body_text, encoding="utf-8")
-        tex_path.write_text(build_nomargin_tex(score_stem), encoding="utf-8")
+        tex_path.write_text(build_nomargin_tex(stem), encoding="utf-8")
 
         latex_result = _run_lualatex(work_dir)
         if latex_result.returncode != 0 or not pdf_path.exists():
             detail = (latex_result.stderr or latex_result.stdout or "").strip()
             raise RuntimeError(f"lualatex failed: {detail[-2000:]}")
 
-        ppm_result = _run_pdftoppm(work_dir, pdf_path.name, score_stem, dpi=dpi)
-        produced = work_dir / f"{score_stem}.png"
+        ppm_result = _run_pdftoppm(work_dir, pdf_path.name, stem, dpi=dpi)
+        produced = work_dir / f"{stem}.png"
         if ppm_result.returncode != 0 or not produced.exists():
             detail = (ppm_result.stderr or ppm_result.stdout or "").strip()
             raise RuntimeError(f"pdftoppm failed: {detail[-2000:]}")
@@ -289,15 +303,14 @@ def _render_job(
 
     try:
         raw_text = job.gabc_path.read_text(encoding="utf-8")
-        if has_double_header(raw_text):
-            raise ValueError("double GABC header (multiple %% markers)")
-
         body_text = body_only_gabc_text(raw_text, name=job.entry.incipit or job.gabc_path.stem)
+        stem = work_score_stem(job.entry.id, job.entry.elem)
         render_gabc_to_image(
             job.gabc_path,
             job.png_path,
             dpi=dpi,
             display_name=job.entry.incipit or None,
+            score_stem=stem,
         )
         link_or_copy_gabc(job.gabc_path, job.gabc_link_path, body_text=body_text)
         return ("rendered", True, None)

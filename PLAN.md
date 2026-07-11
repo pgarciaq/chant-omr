@@ -249,9 +249,11 @@ v0 uses fixed `\hsize=10cm`. [shortscore](https://gregorio-project.github.io/tip
 minipage for very short chants is deferred.
 
 **Source:** manifest `status: ok` entries only (`data/gregobase/manifest.json`).
+Gregorio autocompile uses **id-based work stems** (`20779.gabc`) even when on-disk
+files still use pre-#17 slug names.
 
-**GABC content:** body-only (from first `%%`), written with minimal `name:` header for Gregorio.
-Double-header files (multiple `%%`) are logged and skipped.
+**GABC content:** body-only (neumes after the **last** `%%`; GregoBase often has nested
+header blocks). Written with minimal `name:` header for Gregorio.
 
 **Output layout** (id-based names, matching #17 GABC filenames):
 
