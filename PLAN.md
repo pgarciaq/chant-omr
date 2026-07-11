@@ -18,12 +18,17 @@ track implementation tasks.
 3. **Glyph-compositional GABC**: BPE tokenizer on GABC strings. No fixed
    neume-name classifier — GABC encodes neumes as letter sequences inside
    parentheses (see [Gregorio structure](https://gregorio-project.github.io/structure.html)).
-4. **Polite corpus acquisition**: Official `csv.php` catalog + targeted
+4. **GABC, not Volpiano**: Output and training labels use GABC because it
+   encodes visual neumatic glyphs and integrates with Gregorio/ghh. Volpiano
+   (Cantus) encodes melodic pitch on a virtual staff — better for chant
+   analysis, worse for image→notation OMR and typesetting. See
+   [GABC vs Volpiano](#gabc-vs-volpiano-why-not-volpiano).
+5. **Polite corpus acquisition**: Official `csv.php` catalog + targeted
    downloads. Never brute-force scan GregoBase ID ranges.
-5. **Render consistency**: Match GregoBase's Gregorio stack; use
+6. **Render consistency**: Match GregoBase's Gregorio stack; use
    [nomargin](https://gregorio-project.github.io/tips/nomargin.html) tight
    crops for fixed-size model input (1050×1485).
-6. **Deploy via OpenVINO**: Train in PyTorch; export OpenVINO IR for ghh
+7. **Deploy via OpenVINO**: Train in PyTorch; export OpenVINO IR for ghh
    inference on Intel Arc GPU/NPU without PyTorch at runtime.
 
 ## Implementation Status
@@ -101,8 +106,14 @@ GET https://gregobase.selapa.net/updates.php[?days=N]
 | Backoff | Exponential on 429/503 |
 | Resume | Skip existing files; compare SHA256 |
 
-**Optional bootstrap:** `yakub.cz/gregobase_export/gabc_export.tar.gz` (Dec 2022,
-~3.9 MB) then `csv.php` diff for missing IDs. Not primary — catalog is current.
+**Optional bootstrap archives** (offline copy, then `csv.php` diff for missing IDs):
+
+| Source | Notes |
+|--------|-------|
+| [GregoBaseCorpus](https://github.com/bacor/gregobasecorpus) releases (preferred) | Processed GregoBase dump, CC0, maintained |
+| [yakub.cz export](http://yakub.cz/gregobase_export/gabc_export.tar.gz) | Dec 2022 snapshot, ~3.9 MB — fallback only |
+
+Live `csv.php` remains primary for freshness.
 
 **CLI:**
 
@@ -110,7 +121,8 @@ GET https://gregobase.selapa.net/updates.php[?days=N]
 chant-omr download                    # catalog + download missing
 chant-omr download --sync             # also check updates.php
 chant-omr download --limit 50         # dev smoke test
-chant-omr download --source archive   # optional 2022 tarball bootstrap
+chant-omr download --source archive   # GregoBaseCorpus or yakub.cz bootstrap
+chant-omr download --source gregobasecorpus  # explicit corpus release
 ```
 
 **Known quirks:**
@@ -186,6 +198,50 @@ tokenize, 90/10 train/val split.
 
 Augmentation bridges clean Gregorio renders → parchment photos. Not needed for
 overfit smoke test (#12).
+
+### Alternative data sources (supplementary)
+
+GregoBase is the **primary and sufficient** training corpus (~20k full GABC
+transcriptions, CC0). Other sources are mirrors, tiny supplements, or poor fits
+for v0 square-notation OMR:
+
+| Source | Format | Scale | Use for chant-omr |
+|--------|--------|-------|-------------------|
+| **GregoBase** (live) | GABC | ~20,614 chants | **Primary** — full square-notation transcriptions |
+| [GregoBaseCorpus](https://github.com/bacor/gregobasecorpus) | GABC + metadata | ~same IDs | **Archive bootstrap** — prefer over yakub.cz |
+| [yakub.cz export](http://yakub.cz/gregobase_export/gabc_export.tar.gz) | GABC | Dec 2022 | Offline bootstrap fallback |
+| [gregorio-test](https://github.com/gregorio-project/gregorio-test) | GABC | ~hundreds | **Renderer QA** — edge-case syntax, not volume |
+| Community repos (e.g. [ordinario-lincolnh-gabc](https://github.com/lbssousa/ordinario-lincolnh-gabc)) | GABC | small | Niche editions after dedup against manifest |
+| [CantusCorpus](https://github.com/bacor/CantusCorpus) | Volpiano | 888k records, **~61k with melody** | **Skip v0** — see [GABC vs Volpiano](#gabc-vs-volpiano-why-not-volpiano) |
+| [Corpus Monodicum](https://www.corpusmonodicum.de/) | own format | ~5k full melodies | Wrong task — medieval editorial, not square OMR |
+| OMMR4all | diastematic OMR | research | **Future** medieval neume OMR, not square notation |
+| Neumz, Source & Summit, Illuminare | GABC (per chant) | — | No bulk export |
+| Andrew Hinkley / MusicaSacra archives | GABC | — | Mostly already in GregoBase |
+| Transcoda / DeepScores datasets | modern notation | — | Wrong notation |
+| ghh book photos + manual transcription | GABC | — | **Benchmarks only** (#14), not training scale |
+
+**v0 decision:** one downloader (#5) targeting GregoBase live catalog; optional
+`--source gregobasecorpus` for offline bootstrap. No second corpus pipeline.
+
+**CantusCorpus size reality** ([paper](https://transactions.ismir.net/articles/10.5334/tismir.321),
+May 2025 export):
+
+| CantusCorpus metric | Count |
+|---------------------|-------|
+| All chant records | 888,010 |
+| With Volpiano-encoded melody | 60,588 (~7%) |
+| With Volpiano melody ≥20 notes | 44,625 (~5%) |
+
+Most Cantus rows are **manuscript catalogue entries** (feast, folio, incipit,
+mode) — not transcriptions. Full melody transcription is explicitly a minority
+practice in Cantus. Volpiano was introduced primarily for **melodic incipits**
+([Hiley report](https://www.cambridge.org/core/journals/plainsong-and-medieval-music/article/abs/report-on-the-encoding-of-melodic-incipits-in-the-cantus-database-with-the-music-font-volpiano/77757F9557C9695A6E84076B8F4917C3)).
+For usable melody labels, Cantus (~61k) is only ~3× GregoBase (~20k), not 40×.
+
+Cantus records with `image` links point to **medieval manuscript folios**
+(diastematic/neumatic notation), not modern square notation. Even if labels were
+converted, the visual domain differs from Gregorio renders and from typical ghh
+input (printed square-notation chant books).
 
 ---
 
@@ -289,6 +345,64 @@ ghh omr /path/to/processed/book --model pgarciaq/chant-omr
 
 ---
 
+## GABC vs Volpiano (why not Volpiano?)
+
+GABC is not universally "better" than Volpiano — they solve different problems.
+chant-omr uses GABC because it matches the **visual OMR + Gregorio + ghh** goal.
+License (Cantus CC BY-NC-SA) is **not** a blocker for non-commercial use; the
+real blockers are **label format**, **corpus composition**, and **visual domain**.
+
+| Aspect | GABC (GregoBase) | Volpiano (Cantus) |
+|--------|------------------|-------------------|
+| **Purpose** | Typeset square notation (Gregorio) | Index and compare melodies across manuscripts |
+| **What it encodes** | Neumatic **glyphs** + text + structure | Melodic **pitch** on a virtual 4-line staff |
+| **Neume shapes** | Yes — `(gf)` draws a specific podatus | **No** — Cantus states Volpiano "does not depict neume shapes as found in the original sources" |
+| **Neume grouping** | Parentheses per syllable | Hyphens between neumes on same syllable |
+| **Text** | Syllables inline with neume groups | Separate `full_text` / `incipit` fields |
+| **Typical images** | Gregorio square-notation renders | Medieval manuscript folios (when `image` link present) |
+| **Full melodies** | ~20k complete GABC files | ~61k Volpiano strings (many incipits; ≥20 notes: ~45k) |
+| **Synthetic pipeline** | GABC → Gregorio → PNG (works today) | No Volpiano → square-notation renderer |
+| **ghh output** | Native target format | Volpiano → GABC conversion ambiguous at inference |
+
+### Why Cantus is not a larger training corpus
+
+CantusCorpus advertises ~888k records, but that counts **every manuscript
+occurrence** of a chant (same antiphon in 40 sources = 40 rows). Only ~7% have
+any Volpiano melody at all. GregoBase's ~20k entries are nearly all **complete
+square-notation transcriptions** ready for Gregorio rendering.
+
+### Three blockers for using Cantus in chant-omr
+
+1. **Wrong label semantics.** Volpiano encodes pitch height (`a`–`o`), not glyph
+   identity. Two different neume shapes at the same pitch can yield similar
+   Volpiano strings. Training would teach pitch contour, not "transcribe what you
+   see." The `chant21` library converts GABC → Volpiano (lossy); Volpiano → GABC
+   is the hard, ambiguous direction.
+
+2. **Wrong visual domain.** Cantus `image` URLs are medieval manuscript pages
+   (diastematic/neumatic notation on parchment). chant-omr trains on Gregorio
+   **square notation** and targets ghh-processed printed chant books. These are
+   different notation systems and different visual appearances.
+
+3. **Incomplete melodies.** Many Cantus Volpiano fields are **incipits only**
+   (text field marked with `*`). Full-melody transcription remains a minority
+   practice per CantusCorpus authors.
+
+### When each format wins
+
+| Task | Best format |
+|------|-------------|
+| Square-notation OMR → Gregorio typesetting | **GABC** |
+| Cross-manuscript melodic search / indexing | **Volpiano** |
+| Medieval neume OMR on manuscript folios | **OMMR4all** / Corpus Monodicum (future project) |
+| Musicological transmission analysis | Cantus metadata + Volpiano |
+
+**Future path:** a separate medieval-neume OMR model could use Cantus image
+links + Volpiano (or diastematic labels) as weak supervision. That is out of
+scope for chant-omr v0, which targets square notation for the ghh pipeline.
+
+---
+
 ## GABC Domain Reference
 
 ### Gregorio notation hierarchy
@@ -356,7 +470,7 @@ sudo dnf install texlive-gregoriotex texlive-luatex poppler-utils
 | Role | Photo → searchable PDF | Train OMR model |
 | OMR stage | Consumer (`ghh omr`) | Producer (weights) |
 | Runtime ML | OpenVINO (inference) | PyTorch (training) |
-| Training data | N/A | GregoBase synthetic corpus |
+| Training data | N/A | GregoBase synthetic corpus (~20k GABC) |
 
 ghh `PLAN.md` Future OMR section describes the consumer side. This plan covers
 the training and export side.
