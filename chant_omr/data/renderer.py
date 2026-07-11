@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 from tqdm import tqdm
@@ -41,7 +42,9 @@ logger = logging.getLogger(__name__)
 FAILURES_FILENAME = "render_failures.jsonl"
 NOMARGIN_TEX_NAME = "nomargin.tex"
 DEFAULT_DPI = 300
-DEFAULT_WORKERS = 1
+DEFAULT_WORKERS = 0  # 0 = auto (see resolve_render_workers)
+DEFAULT_WORKERS_CAP = 8
+TEX_CACHE_DIRNAME = ".texcache"
 SCORE_HSIZE = r"10cm"
 
 NOMARGIN_LATEX_TEMPLATE = r"""% !TEX program = LuaLaTeX+se
@@ -111,6 +114,28 @@ def toolchain_available() -> bool:
     return all(shutil.which(cmd) for cmd in ("gregorio", "lualatex", "pdftoppm"))
 
 
+def default_render_workers_cap() -> int:
+    """Upper bound for auto worker count (override via ``CHANT_OMR_RENDER_WORKERS_MAX``)."""
+    raw = os.environ.get("CHANT_OMR_RENDER_WORKERS_MAX", str(DEFAULT_WORKERS_CAP))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_WORKERS_CAP
+
+
+def resolve_render_workers(workers: int) -> int:
+    """Return worker count; ``0`` or negative values mean auto-detect."""
+    if workers > 0:
+        return workers
+    cpu = os.cpu_count() or 1
+    return max(1, min(cpu, default_render_workers_cap()))
+
+
+def tex_cache_dir(output_dir: Path) -> Path:
+    """Persistent LuaTeX cache directory for a render output tree."""
+    return output_dir / TEX_CACHE_DIRNAME
+
+
 def png_filename(chant_id: int, elem: int | None) -> str:
     """Output PNG basename matching GregoBase id-based GABC names."""
     return disk_filename(chant_id, elem).removesuffix(".gabc") + ".png"
@@ -147,8 +172,16 @@ def build_nomargin_tex(score_stem: str, *, hsize: str = SCORE_HSIZE) -> str:
 def append_failure_log(path: Path, failure: RenderFailure) -> None:
     """Append one JSON line to the render failure log."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(failure.to_dict()) + "\n"
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(failure.to_dict()) + "\n")
+        try:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            handle.write(line)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except ImportError:
+            handle.write(line)
 
 
 def link_or_copy_gabc(
@@ -193,10 +226,27 @@ def iter_render_jobs(
         )
 
 
+def _tex_cache_for_lualatex(work_dir: Path, cache_dir: Path | None = None) -> Path:
+    """Return a writable LuaTeX cache directory for one lualatex invocation."""
+    if cache_dir is not None:
+        path = cache_dir
+    elif os.environ.get("TEXMFCACHE"):
+        path = Path(os.environ["TEXMFCACHE"])
+    else:
+        path = work_dir / ".texcache"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _run_lualatex(
     work_dir: Path,
     tex_name: str = NOMARGIN_TEX_NAME,
+    *,
+    cache_dir: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    cache = _tex_cache_for_lualatex(work_dir, cache_dir)
+    env = os.environ.copy()
+    env["TEXMFCACHE"] = str(cache)
     return subprocess.run(
         [
             "lualatex",
@@ -210,6 +260,7 @@ def _run_lualatex(
         text=True,
         check=False,
         timeout=180,
+        env=env,
     )
 
 
@@ -328,6 +379,12 @@ def _render_job(
         return ("failed", False, error)
 
 
+def _init_render_worker(cache_dir: str) -> None:
+    """ProcessPoolExecutor initializer: share LuaTeX font cache across jobs."""
+    os.environ["TEXMFCACHE"] = cache_dir
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+
+
 def render_corpus(
     gabc_dir: Path,
     output_dir: Path,
@@ -342,9 +399,12 @@ def render_corpus(
     if not toolchain_available():
         raise RuntimeError("Gregorio toolchain not available (gregorio, lualatex, pdftoppm)")
 
+    worker_count = resolve_render_workers(workers)
     manifest_path = gabc_dir / MANIFEST_FILENAME
     manifest = Manifest.load(manifest_path)
     failures_path = output_dir / FAILURES_FILENAME
+    cache_dir = tex_cache_dir(output_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     jobs = list(iter_render_jobs(manifest, gabc_dir, output_dir, force=force))
     if limit is not None:
@@ -361,7 +421,8 @@ def render_corpus(
     output_dir.mkdir(parents=True, exist_ok=True)
     progress = tqdm(jobs, disable=not show_progress, unit="score")
 
-    if workers <= 1:
+    if worker_count <= 1:
+        _init_render_worker(str(cache_dir))
         for job in progress:
             status, _, _ = _render_job(job, dpi=dpi, force=force, failures_path=failures_path)
             if status == "rendered":
@@ -372,11 +433,13 @@ def render_corpus(
                 stats.failed += 1
         return stats
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(_render_job, job, dpi=dpi, force=force, failures_path=failures_path)
-            for job in jobs
-        ]
+    render_fn = partial(_render_job, dpi=dpi, force=force, failures_path=failures_path)
+    with ProcessPoolExecutor(
+        max_workers=worker_count,
+        initializer=_init_render_worker,
+        initargs=(str(cache_dir),),
+    ) as executor:
+        futures = [executor.submit(render_fn, job) for job in jobs]
         for future in as_completed(futures):
             progress.update(1)
             status, _, _ = future.result()

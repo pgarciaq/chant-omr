@@ -16,6 +16,28 @@ FIXTURES = Path(__file__).parent / "fixtures" / "gregobase"
 RESPICE_GABC = FIXTURES / "respice_domine.gabc"
 
 
+class TestRenderWorkers:
+    def test_resolve_render_workers_explicit(self):
+        assert rd.resolve_render_workers(4) == 4
+
+    def test_resolve_render_workers_auto(self, monkeypatch):
+        monkeypatch.setenv("CHANT_OMR_RENDER_WORKERS_MAX", "8")
+        monkeypatch.setattr(rd.os, "cpu_count", lambda: 22)
+        assert rd.resolve_render_workers(0) == 8
+
+    def test_resolve_render_workers_auto_respects_cpu(self, monkeypatch):
+        monkeypatch.setenv("CHANT_OMR_RENDER_WORKERS_MAX", "16")
+        monkeypatch.setattr(rd.os, "cpu_count", lambda: 4)
+        assert rd.resolve_render_workers(-1) == 4
+
+    def test_default_render_workers_cap_invalid_env(self, monkeypatch):
+        monkeypatch.setenv("CHANT_OMR_RENDER_WORKERS_MAX", "not-a-number")
+        assert rd.default_render_workers_cap() == rd.DEFAULT_WORKERS_CAP
+
+    def test_tex_cache_dir(self, tmp_path: Path):
+        assert rd.tex_cache_dir(tmp_path / "rendered") == tmp_path / "rendered" / ".texcache"
+
+
 class TestGabcHelpers:
     def test_has_double_header(self):
         single = RESPICE_GABC.read_text(encoding="utf-8")

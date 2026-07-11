@@ -25,7 +25,13 @@ from chant_omr.data.renderer import render_corpus, toolchain_available
 @click.option("--output", type=click.Path(), default="data/rendered/")
 @click.option("--limit", type=int, default=None, help="Max pending manifest entries to render")
 @click.option("--dpi", type=int, default=300, show_default=True)
-@click.option("--workers", type=int, default=1, show_default=True)
+@click.option(
+    "--workers",
+    type=int,
+    default=0,
+    show_default="auto",
+    help="Parallel LuaLaTeX workers (0 = min(cpu, cap))",
+)
 @click.option("--force", is_flag=True, help="Re-render even when PNG already exists")
 @click.option("--no-progress", is_flag=True, help="Disable the render progress bar")
 @click.option(

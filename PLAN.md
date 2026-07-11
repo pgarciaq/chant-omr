@@ -40,6 +40,7 @@ track implementation tasks. Test strategy: [§ Testing](#testing).
 | 1.1 | GregoBase downloader | #5 | **Done** | 24 (gregobase) |
 | 1.1c | Manifest hardening + id filenames | #17 | **Done** | (gregobase) |
 | 1.2 | Gregorio renderer | #6 | **Done** | renderer |
+| 1.2d | Parallel render workers + TeX cache | #31 | **Done** | renderer |
 | 1.3 | BPE tokenizer | #7 | **Done** | tokenizer |
 | 1.4 | Dataset (Phase A) | #8 | **Done** | dataset |
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
@@ -300,12 +301,18 @@ skip category counters (NABC, empty body, compile).
 
 **CLI (v0):**
 
+**Performance:** each score runs a full LuaLaTeX + Gregorio autocompile (~10–15 s/score
+sequential). See [#31](https://github.com/pgarciaq/chant-omr/issues/31) for parallel workers.
+
 ```bash
-chant-omr render                              # all pending manifest ok entries
-chant-omr render --limit 50                   # manual gate batch
-chant-omr render --force                      # re-render existing PNGs
-chant-omr render --dpi 300 --workers 1        # defaults
+chant-omr render                              # auto workers (min(cpu, 8))
+chant-omr render --workers 4                  # explicit parallelism
+CHANT_OMR_RENDER_WORKERS_MAX=16 chant-omr render
 ```
+
+Auto mode sets ``TEXMFCACHE`` under ``data/rendered/.texcache/`` so font caches are
+shared across worker processes. Lower ``--dpi 200`` also helps slightly; training
+resize targets width 1050 regardless.
 
 ### 1.3 BPE Tokenizer (`chant_omr/model/tokenizer.py`)
 
@@ -780,6 +787,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 0 | — | `test_gabc_parser.py` | 5 parser tests | — |
 | 1.1 | #5 | `test_gregobase.py` | Catalog, elem, updates, manifest, rate limit | `download --limit 50` live |
 | 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 plain GABC |
+| 1.2d | #31 | `test_renderer.py` | `resolve_render_workers`, parallel corpus | Bulk render with auto workers |
 | 1.2e | #27 | — | — | Success % + skip counters in CLI output |
 | 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
 | 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant, collate | DataLoader batch |

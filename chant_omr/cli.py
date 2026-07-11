@@ -109,7 +109,13 @@ def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress,
 @click.option("--output-dir", type=click.Path(), default="data/rendered/")
 @click.option("--limit", type=int, default=None, help="Max pending manifest entries to render")
 @click.option("--dpi", type=int, default=300, show_default=True)
-@click.option("--workers", type=int, default=1, show_default=True)
+@click.option(
+    "--workers",
+    type=int,
+    default=0,
+    show_default="auto",
+    help="Parallel LuaLaTeX workers (0 = min(cpu, cap); cap via CHANT_OMR_RENDER_WORKERS_MAX)",
+)
 @click.option("--force", is_flag=True, help="Re-render even when PNG already exists")
 @click.option("--no-progress", is_flag=True, help="Disable the render progress bar")
 @click.option(
@@ -122,7 +128,7 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
     import sys
     from pathlib import Path
 
-    from chant_omr.data.renderer import render_corpus, toolchain_available
+    from chant_omr.data.renderer import render_corpus, resolve_render_workers, toolchain_available
 
     if no_progress and progress:
         raise click.ClickException("Use only one of --progress or --no-progress.")
@@ -147,9 +153,11 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
         force=force,
         show_progress=show_progress,
     )
+    worker_count = resolve_render_workers(workers)
     click.echo(
         f"Manifest ok: {stats.manifest_ok} | Attempted: {stats.attempted} | "
-        f"Rendered: {stats.rendered} | Skipped: {stats.skipped} | Failed: {stats.failed}"
+        f"Rendered: {stats.rendered} | Skipped: {stats.skipped} | Failed: {stats.failed} | "
+        f"Workers: {worker_count}"
     )
 
 
