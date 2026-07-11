@@ -74,27 +74,83 @@ GET https://gregobase.selapa.net/csv.php
 GET https://gregobase.selapa.net/download.php?id={id}&format=gabc[&elem=N]
 ```
 
-**Multi-variant chants** (Solesmes vs Vatican, etc.): bare URL returns HTTP 200
-with 0 bytes. Retry with `elem=1`, `elem=2`, … until empty. Save each variant
-as a separate file (Content-Disposition filename).
+**Multi-variant chants** (Solesmes vs Vatican, etc.): when GregoBase stores
+multiple GABC entries as a JSON array, bare `download.php` returns HTTP 200 with
+**0 bytes**. Single-entry chants may also require `elem=1` (bare empty, elem=1
+valid). Probe `elem=1`, `elem=2`, … until invalid; **deduplicate by SHA256**
+(some IDs return identical bytes for bare and all `elem` values).
 
-**Incremental sync:**
+**`elem` loop algorithm (v0):**
+
+1. `GET` bare URL (no `elem`).
+2. `GET` `elem=1` … `elem=20` (max cap). Stop when body is empty, lacks `%%`, or
+   SHA256 was already saved for this `id`.
+3. Save each unique variant using `Content-Disposition` filename.
+4. Record `elem: null` for bare-only successes, `elem: N` otherwise.
+
+Verified live: `id=500` bare=0 / elem=1=714 B; `id=5000` bare=908 B (all elems
+identical — save once).
+
+**Incremental sync** (`updates.php`):
 
 ```
 GET https://gregobase.selapa.net/updates.php[?days=N]
-→ re-download listed IDs (added/edited chants)
 ```
+
+Returns **HTML** (not CSV/JSON). Default window: 15 days; `?days=30` works.
+
+Parse `<a href="chant.php?id=NNNN">` from each `<li>`; collect unique IDs
+(same ID may appear multiple times for edit history). Re-download all variants
+for each ID. Store `last_sync_date` in manifest.
 
 **Manifest** (`data/gregobase/manifest.json`):
 
 ```json
 {
   "catalog_date": "2026-07-10T17:19:00",
+  "last_sync_date": "2026-07-11T12:00:00",
   "entries": [
-    {"id": 5000, "elem": 1, "filename": "in--respice_domine--dominican.gabc", "sha256": "..."}
+    {
+      "id": 5000,
+      "elem": null,
+      "office_part": "Introitus",
+      "incipit": "Respice Domine",
+      "filename": "in--respice_domine--dominican.gabc",
+      "sha256": "...",
+      "size_bytes": 908,
+      "status": "ok",
+      "source": "live",
+      "error": null
+    }
   ]
 }
 ```
+
+| Field | Purpose |
+|-------|---------|
+| `office_part`, `incipit` | From `csv.php` catalog — debugging |
+| `status` | `ok` / `failed` / `skipped` |
+| `error` | HTTP code, empty body, missing `%%`, etc. |
+| `size_bytes` | Detect truncated downloads |
+| `source` | `live` (v0 only; archive bootstrap deferred) |
+
+Manifest is local state (`data/gregobase/` is gitignored).
+
+**Polite download (rate limiting):**
+
+The downloader **must implement** rate limiting explicitly — GregoBase does not
+throttle for you. v0 behavior:
+
+| Control | Default | CLI override |
+|---------|---------|--------------|
+| Delay between `download.php` requests | 1.0 s | `--rate-limit 1.0` |
+| Parallelism | None (sequential only) | — |
+| Transient errors (429, 503, timeout) | Exponential backoff, 3 retries | — |
+| Permanent errors (empty body, no `%%`) | Log, `status: failed`, continue | — |
+
+`csv.php` and `updates.php` are single requests (no rate limit between them and
+downloads beyond the per-download delay). At 1 req/s, a full ~20k catalog fetch
+takes **~5.5 hours** — use phased runs (see below).
 
 **Anti-blocking rules:**
 
@@ -103,27 +159,24 @@ GET https://gregobase.selapa.net/updates.php[?days=N]
 | ID discovery | `csv.php` only — never scan 1..21000 |
 | Rate limit | 1 req/sec default on `download.php` |
 | User-Agent | `chant-omr/0.1 (+https://github.com/pgarciaq/chant-omr)` |
-| Backoff | Exponential on 429/503 |
-| Resume | Skip existing files; compare SHA256 |
+| Backoff | Exponential on 429/503 (3 retries) |
+| Resume | Skip `status: ok` entries with matching SHA256; re-fetch `failed` |
 
-**Optional bootstrap archives** (offline copy, then `csv.php` diff for missing IDs):
+**Bootstrap archives:** deferred post-v0. [GregoBaseCorpus v0.4](https://github.com/bacor/gregobasecorpus/releases/tag/v0.4)
+is from **July 2020** (~6 years stale). v0 ships **live-download-only**; archive
+bootstrap can be added later if needed.
 
-| Source | Notes |
-|--------|-------|
-| [GregoBaseCorpus](https://github.com/bacor/gregobasecorpus) releases (preferred) | Processed GregoBase dump, CC0, maintained |
-| [yakub.cz export](http://yakub.cz/gregobase_export/gabc_export.tar.gz) | Dec 2022 snapshot, ~3.9 MB — fallback only |
-
-Live `csv.php` remains primary for freshness.
-
-**CLI:**
+**CLI (v0):**
 
 ```bash
-chant-omr download                    # catalog + download missing
-chant-omr download --sync             # also check updates.php
-chant-omr download --limit 50         # dev smoke test
-chant-omr download --source archive   # GregoBaseCorpus or yakub.cz bootstrap
-chant-omr download --source gregobasecorpus  # explicit corpus release
+chant-omr download                         # catalog + download missing
+chant-omr download --sync [--days 30]    # also parse updates.php
+chant-omr download --limit 500           # phased batch (resume via manifest)
+chant-omr download --rate-limit 1.0      # seconds between download.php calls
 ```
+
+**Phased first run:** use `--limit N` repeatedly; manifest resume skips completed
+IDs. Example: `--limit 500` × 40 sessions, or one overnight full run (~5.5 h).
 
 **Known quirks:**
 
@@ -186,6 +239,12 @@ BPE learns character/subword patterns efficiently.
 **Phase A:** `ChantOMRDataset` — load paired PNG + GABC, resize 1050×1485,
 tokenize, 90/10 train/val split.
 
+**Multi-variant training samples:** #5 downloads all unique variants per catalog
+`id` (dedupe by SHA256). #8 keeps **all variants** as separate training samples
+— editorial diversity (Solesmes vs Vatican) helps robustness. Optional
+`--one-variant-per-id` filter deferred unless corpus size or edition noise
+becomes a problem.
+
 **Phase B:** On-the-fly domain augmentation (not pre-computed):
 
 | Category | Augmentations |
@@ -208,8 +267,8 @@ for v0 square-notation OMR:
 | Source | Format | Scale | Use for chant-omr |
 |--------|--------|-------|-------------------|
 | **GregoBase** (live) | GABC | ~20,614 chants | **Primary** — full square-notation transcriptions |
-| [GregoBaseCorpus](https://github.com/bacor/gregobasecorpus) | GABC + metadata | ~same IDs | **Archive bootstrap** — prefer over yakub.cz |
-| [yakub.cz export](http://yakub.cz/gregobase_export/gabc_export.tar.gz) | GABC | Dec 2022 | Offline bootstrap fallback |
+| [GregoBaseCorpus](https://github.com/bacor/gregobasecorpus) | GABC + metadata | v0.4 (2020) | **Deferred** — stale; live download first |
+| [yakub.cz export](http://yakub.cz/gregobase_export/gabc_export.tar.gz) | GABC | Dec 2022 | Deferred archive bootstrap |
 | [gregorio-test](https://github.com/gregorio-project/gregorio-test) | GABC | ~hundreds | **Renderer QA** — edge-case syntax, not volume |
 | Community repos (e.g. [ordinario-lincolnh-gabc](https://github.com/lbssousa/ordinario-lincolnh-gabc)) | GABC | small | Niche editions after dedup against manifest |
 | [CantusCorpus](https://github.com/bacor/CantusCorpus) | Volpiano | 888k records, **~61k with melody** | **Skip v0** — see [GABC vs Volpiano](#gabc-vs-volpiano-why-not-volpiano) |
@@ -220,8 +279,8 @@ for v0 square-notation OMR:
 | Transcoda / DeepScores datasets | modern notation | — | Wrong notation |
 | ghh book photos + manual transcription | GABC | — | **Benchmarks only** (#14), not training scale |
 
-**v0 decision:** one downloader (#5) targeting GregoBase live catalog; optional
-`--source gregobasecorpus` for offline bootstrap. No second corpus pipeline.
+**v0 decision:** one downloader (#5) targeting GregoBase live catalog only.
+Archive bootstrap (GregoBaseCorpus / yakub.cz) deferred post-v0.
 
 **CantusCorpus size reality** ([paper](https://transactions.ismir.net/articles/10.5334/tismir.321),
 May 2025 export):
