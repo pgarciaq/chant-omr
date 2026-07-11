@@ -16,14 +16,34 @@ def main():
 @click.option("--resume", type=click.Path(exists=True), default=None, help="Resume from checkpoint")
 @click.option("--gpus", type=int, default=1)
 @click.option("--epochs", type=int, default=None, help="Override config epochs")
-def train(config, resume, gpus, epochs):
+@click.option("--batch-size", type=int, default=None, help="Override config batch size")
+@click.option("--precision", type=str, default=None, help="Override config precision")
+@click.option("--overfit-n", type=int, default=None, help="Train on first N samples (smoke test)")
+def train(config, resume, gpus, epochs, batch_size, precision, overfit_n):
     """Train the OMR model."""
-    click.echo(f"Training with config: {config}")
+    from pathlib import Path
+
+    from chant_omr.training.lightning_module import run_training
+
+    run_training(
+        Path(config),
+        resume=Path(resume) if resume else None,
+        gpus=gpus,
+        epochs=epochs,
+        batch_size=batch_size,
+        precision=precision,
+        overfit_n=overfit_n,
+    )
 
 
 @main.command()
 @click.argument("image_path", type=click.Path(exists=True))
-@click.option("--model", type=str, default="pgarciaq/chant-omr", help="Model path or HuggingFace ID")
+@click.option(
+    "--model",
+    type=str,
+    default="pgarciaq/chant-omr",
+    help="Model path or HuggingFace ID",
+)
 @click.option("--device", type=str, default="auto")
 @click.option("--output", type=click.Path(), default=None, help="Output GABC file path")
 def predict(image_path, model, device, output):
@@ -33,7 +53,12 @@ def predict(image_path, model, device, output):
 
 @main.command()
 @click.argument("checkpoint", type=click.Path(exists=True))
-@click.option("--format", "fmt", type=click.Choice(["openvino", "onnx", "safetensors"]), default="openvino")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["openvino", "onnx", "safetensors"]),
+    default="openvino",
+)
 @click.option("--output-dir", type=click.Path(), default="models/")
 def export(checkpoint, fmt, output_dir):
     """Export a trained model for inference."""

@@ -16,6 +16,18 @@ import torch.nn as nn
 DEFAULT_ENCODER_VARIANT = "convnextv2_tiny"
 DEFAULT_OUTPUT_STRIDE = 32
 
+
+def patch_grid_size(
+    height: int,
+    width: int,
+    *,
+    stride: int = DEFAULT_OUTPUT_STRIDE,
+) -> tuple[int, int]:
+    """Return ConvNeXt patch grid ``(H', W')`` for pixel ``(height, width)``."""
+    if height <= 0 or width <= 0:
+        raise ValueError(f"invalid pixel size: ({height}, {width})")
+    return height // stride, width // stride
+
 # Short config aliases → full timm checkpoint names.
 ENCODER_ALIASES: dict[str, str] = {
     "convnextv2_tiny": "convnextv2_tiny.fcmae_ft_in22k_in1k",

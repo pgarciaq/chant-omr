@@ -14,12 +14,14 @@ from chant_omr.data.dataset import (
     ChantOMRDataset,
     build_dataloaders,
     build_datasets,
+    build_encoder_attention_mask,
     catalog_id_from_render_stem,
     collate_chant_omr_batch,
     discover_rendered_pairs,
     resize_score_image,
     split_samples_by_catalog_id,
 )
+from chant_omr.model.encoder import patch_grid_size
 from chant_omr.model.tokenizer import train_tokenizer
 
 GABC_FIXTURES = Path(__file__).parent / "fixtures" / "gregobase"
@@ -52,15 +54,15 @@ def rendered_dir(tmp_path: Path) -> Path:
     rendered.mkdir()
 
     pairs = [
-        ("9000", RESPICE_GABC),
-        ("9000_elem1", DOUBLE_HEADER_GABC),
-        ("9100", RESPICE_GABC),
-        ("9200", DOUBLE_HEADER_GABC),
-        ("9300", RESPICE_GABC),
+        ("9000", RESPICE_GABC, (236, 80)),
+        ("9000_elem1", DOUBLE_HEADER_GABC, (236, 80)),
+        ("9100", RESPICE_GABC, (400, 120)),
+        ("9200", DOUBLE_HEADER_GABC, (236, 80)),
+        ("9300", RESPICE_GABC, (600, 120)),
     ]
-    for stem, gabc_src in pairs:
+    for stem, gabc_src, size in pairs:
         shutil.copy(gabc_src, rendered / f"{stem}.gabc")
-        _write_fake_png(rendered / f"{stem}.png")
+        _write_fake_png(rendered / f"{stem}.png", size=size)
     return rendered
 
 
@@ -165,6 +167,52 @@ class TestCollateBatch:
             len(batch[i]["input_ids"]) for i in range(3)
         ]
 
+    def test_encoder_attention_mask_shape(self, rendered_dir: Path, tokenizer):
+        samples = discover_rendered_pairs(rendered_dir, min_body_len=10)
+        dataset = ChantOMRDataset(samples[:3], tokenizer, augment=False)
+        batch = [dataset[i] for i in range(3)]
+        collated = collate_chant_omr_batch(
+            batch,
+            pad_token_id=tokenizer.pad_id,
+            max_seq_len=512,
+        )
+        max_h = max(item["image"].shape[0] for item in batch)
+        max_w = max(item["image"].shape[1] for item in batch)
+        grid_h, grid_w = patch_grid_size(max_h, max_w)
+        assert collated["encoder_attention_mask"].shape == (3, grid_h * grid_w)
+
+    def test_encoder_attention_mask_zeros_padded_rows(self, rendered_dir: Path, tokenizer):
+        samples = discover_rendered_pairs(rendered_dir, min_body_len=10)
+        dataset = ChantOMRDataset(samples, tokenizer, augment=False)
+        batch = [dataset[i] for i in range(3)]
+        collated = collate_chant_omr_batch(
+            batch,
+            pad_token_id=tokenizer.pad_id,
+            max_seq_len=512,
+        )
+        max_h = max(item["image"].shape[0] for item in batch)
+        max_w = max(item["image"].shape[1] for item in batch)
+        grid_h, grid_w = patch_grid_size(max_h, max_w)
+        for row, item in enumerate(batch):
+            valid_h = item["image"].shape[0] // 32
+            mask = collated["encoder_attention_mask"][row].view(grid_h, grid_w)
+            if valid_h < grid_h:
+                assert mask[valid_h:, :].sum() == 0
+            assert mask[:valid_h, :grid_w].sum() == valid_h * grid_w
+
+
+class TestEncoderAttentionMaskHelper:
+    def test_build_encoder_attention_mask(self):
+        mask = build_encoder_attention_mask(
+            [(400, 1050), (800, 1050)],
+            padded_height=800,
+            padded_width=1050,
+        )
+        grid_h, grid_w = patch_grid_size(800, 1050)
+        assert mask.shape == (2, grid_h * grid_w)
+        assert mask[0].sum() == (400 // 32) * grid_w
+        assert mask[1].sum() == grid_h * grid_w
+
 
 class TestDataLoaderIntegration:
     def test_dataloader_batch(self, rendered_dir: Path, tokenizer):
@@ -186,4 +234,5 @@ class TestDataLoaderIntegration:
         assert batch["pixel_values"].dtype == torch.float32
         assert batch["pixel_values"].shape[0] <= 2
         assert batch["input_ids"].shape == batch["attention_mask"].shape
+        assert batch["encoder_attention_mask"].shape[0] == batch["pixel_values"].shape[0]
         assert len(val_loader) >= 1

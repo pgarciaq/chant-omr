@@ -49,7 +49,8 @@ Architecture decision records: [docs/adr/](docs/adr/README.md).
 | 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
 | 2.2 | Transformer decoder | #10 | **Done** | decoder |
 | 2.3 | Model assembly | #11 | **Done** | model |
-| 3.1 | Lightning training | #12 | Pending | — |
+| 2.3a | Encoder padding mask in collate | #32 | **Done** | dataset |
+| 3.1 | Lightning training | #12 | **Done** | lightning |
 | 4.1 | Inference + export | #13 | Pending | — |
 | 4.2 | Benchmark evaluation | #14 | Pending | — |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
@@ -816,6 +817,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |
 | 2.2 | #10 | `test_decoder.py` | Forward pass, causal mask | — |
 | 2.3 | #11 | `test_model.py` | E2E forward, param count ~59M | — |
+| 2.3a | #32 | `test_dataset.py` | Encoder padding mask in collate | Mixed-height batch |
 | 3.1 | #12 | `test_lightning.py` | One training step on synthetic batch | Overfit 10 samples |
 | 4.1 | #13 | `test_predict.py`, `test_export.py` | GABC output parses; export artifacts exist | Predict on rendered PNG |
 | 4.2 | #14 | `test_evaluate.py` | Metrics on fixture pairs; empty dir no-op | Run on `benchmarks/` |

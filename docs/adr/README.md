@@ -40,6 +40,8 @@ already-documented pattern.
 | [0007](0007-nabc-deferred-for-v0.md) | Defer NABC support for v0 | Accepted |
 | [0008](0008-end-to-end-over-classical-omr.md) | End-to-end vision-encoder-decoder over classical OMR | Accepted |
 | [0009](0009-mlp-projector-and-2d-sinusoidal-bridge.md) | MLP projector and 2D sinusoidal bridge | Accepted |
+| [0010](0010-encoder-padding-mask-in-collate.md) | Encoder padding mask in dataset collate | Accepted |
+| [0011](0011-teacher-forcing-cross-entropy-loss.md) | Teacher-forcing cross-entropy training loss | Accepted |
 
 ## Template
 

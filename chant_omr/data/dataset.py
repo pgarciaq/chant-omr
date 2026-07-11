@@ -19,7 +19,10 @@ from chant_omr.data.gabc_parser import (
     extract_gabc_body,
     plain_gabc_reject_reason,
 )
+from chant_omr.model.encoder import DEFAULT_OUTPUT_STRIDE, patch_grid_size
 from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
+
+DEFAULT_PATCH_STRIDE = DEFAULT_OUTPUT_STRIDE
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -139,12 +142,32 @@ def normalize_pixel_batch(pixels: torch.Tensor) -> torch.Tensor:
     return (pixels - mean) / std
 
 
+def build_encoder_attention_mask(
+    image_sizes: Sequence[tuple[int, int]],
+    *,
+    padded_height: int,
+    padded_width: int,
+    stride: int = DEFAULT_PATCH_STRIDE,
+) -> torch.Tensor:
+    """Build ``(B, H'W')`` mask marking valid (non-padded) encoder patches."""
+    grid_h, grid_w = patch_grid_size(padded_height, padded_width, stride=stride)
+    masks: list[torch.Tensor] = []
+    for height, width in image_sizes:
+        valid_h = min(grid_h, height // stride)
+        valid_w = min(grid_w, width // stride)
+        mask_2d = torch.zeros(grid_h, grid_w, dtype=torch.long)
+        mask_2d[:valid_h, :valid_w] = 1
+        masks.append(mask_2d.flatten())
+    return torch.stack(masks)
+
+
 def collate_chant_omr_batch(
     batch: list[dict],
     *,
     pad_token_id: int,
     max_seq_len: int,
     normalize: bool = True,
+    patch_stride: int = DEFAULT_PATCH_STRIDE,
 ) -> dict[str, torch.Tensor]:
     """Pad variable-height images and token sequences into one batch."""
     if not batch:
@@ -152,11 +175,13 @@ def collate_chant_omr_batch(
 
     max_h = max(item["image"].shape[0] for item in batch)
     max_w = max(item["image"].shape[1] for item in batch)
+    image_sizes: list[tuple[int, int]] = []
 
     images = []
     for item in batch:
         arr = item["image"]
         h, w, _ = arr.shape
+        image_sizes.append((h, w))
         padded = np.full((max_h, max_w, 3), 255, dtype=np.uint8)
         padded[:h, :w] = arr
         images.append(torch.from_numpy(padded).permute(2, 0, 1).float() / 255.0)
@@ -164,6 +189,13 @@ def collate_chant_omr_batch(
     pixel_values = torch.stack(images)
     if normalize:
         pixel_values = normalize_pixel_batch(pixel_values)
+
+    encoder_attention_mask = build_encoder_attention_mask(
+        image_sizes,
+        padded_height=max_h,
+        padded_width=max_w,
+        stride=patch_stride,
+    )
 
     max_tokens = min(max(len(item["input_ids"]) for item in batch), max_seq_len)
     input_ids = torch.full((len(batch), max_tokens), pad_token_id, dtype=torch.long)
@@ -177,6 +209,7 @@ def collate_chant_omr_batch(
         "pixel_values": pixel_values,
         "input_ids": input_ids,
         "attention_mask": attention_mask,
+        "encoder_attention_mask": encoder_attention_mask,
     }
 
 
@@ -225,6 +258,8 @@ class ChantOMRDataset(Dataset):
 
         return {
             "image": image,
+            "image_height": image.shape[0],
+            "image_width": image.shape[1],
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "stem": sample.stem,
@@ -247,6 +282,7 @@ def build_datasets(
     target_width: int = DEFAULT_TARGET_WIDTH,
     max_height: int = DEFAULT_MAX_HEIGHT,
     min_body_len: int = DEFAULT_MIN_BODY_LEN,
+    overfit_n: int | None = None,
 ) -> tuple[ChantOMRDataset, ChantOMRDataset]:
     """Discover pairs and return train/val datasets split by catalog id."""
     samples = discover_rendered_pairs(rendered_dir, min_body_len=min_body_len)
@@ -260,6 +296,11 @@ def build_datasets(
     if not val_samples:
         val_samples = train_samples[-1:]
         train_samples = train_samples[:-1]
+    if overfit_n is not None:
+        if overfit_n < 1:
+            raise ValueError("overfit_n must be >= 1")
+        train_samples = train_samples[:overfit_n]
+        val_samples = train_samples[:1]
     common = {
         "tokenizer": tokenizer,
         "augment": augment,
