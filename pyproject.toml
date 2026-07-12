@@ -9,6 +9,7 @@ description = "Train an end-to-end vision-encoder-decoder for Gregorian chant Op
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
+# PyTorch device wheels (CUDA / XPU / CPU) are chosen at install time — see docs/DEPENDENCIES.md
 dependencies = [
     "torch>=2.4",
     "torchvision>=0.19",
@@ -29,6 +30,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# OpenVINO / ONNX export (#13b). GPU RPMs: docs/DEPENDENCIES.md
 export = [
     "openvino>=2024.0",
     "onnx>=1.15",
@@ -39,6 +41,9 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
 ]
+
+[project.urls]
+Documentation = "https://github.com/pgarciaq/chant-omr/blob/master/docs/DEPENDENCIES.md"
 
 [project.scripts]
 chant-omr = "chant_omr.cli:main"

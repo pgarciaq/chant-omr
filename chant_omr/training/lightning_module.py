@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from chant_omr.data.dataset import build_dataloaders, build_datasets, load_config
 from chant_omr.model.chant_omr_model import ChantOMR, ChantOMRConfig, build_model
 from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
+from chant_omr.training.xpu_strategy import SingleXPUStrategy, xpu_is_available
 
 
 class ChantOMRLightningModule(LightningModule):
@@ -125,13 +126,85 @@ class ChantOMRLightningModule(LightningModule):
         }
 
 
-def resolve_precision(config_precision: str) -> str:
-    """Pick a safe precision when CUDA is unavailable."""
-    if torch.cuda.is_available():
+def _effective_accelerator(accelerator: str, gpus: int) -> str:
+    """Resolve ``auto`` to ``cuda``, ``xpu``, or ``cpu``."""
+    if accelerator == "cuda":
+        return "cuda"
+    if accelerator == "xpu":
+        return "xpu"
+    if accelerator == "cpu":
+        return "cpu"
+    if accelerator != "auto":
+        raise ValueError(f"unsupported accelerator: {accelerator!r} (use auto, cuda, xpu, cpu)")
+    if gpus > 0 and torch.cuda.is_available():
+        return "cuda"
+    if gpus > 0 and xpu_is_available():
+        return "xpu"
+    return "cpu"
+
+
+def resolve_precision(config_precision: str, *, accelerator: str) -> str:
+    """Pick a safe precision for the selected accelerator."""
+    if accelerator == "cuda":
+        return config_precision
+    if accelerator == "xpu":
+        # Intel Arc A-series lacks FP64 for GradScaler; prefer true bf16 over mixed AMP.
+        if config_precision in {"16-mixed", "bf16-mixed"}:
+            return "bf16-true"
+        if config_precision.endswith("-mixed"):
+            return "32-true"
         return config_precision
     if config_precision.endswith("-mixed"):
         return "32-true"
     return config_precision
+
+
+def resolve_trainer_devices(
+    *,
+    accelerator: str,
+    gpus: int,
+    xpu_index: int,
+) -> tuple[str | None, int, SingleXPUStrategy | None]:
+    """Return ``(accelerator, devices, strategy)`` for Lightning Trainer.
+
+    When *strategy* is set, pass it to ``Trainer(strategy=...)`` and leave
+    *accelerator* as ``None`` (Lightning uses the strategy's device).
+    """
+    kind = _effective_accelerator(accelerator, gpus)
+    if kind == "cuda":
+        return "gpu", max(1, gpus), None
+    if kind == "xpu":
+        return None, 1, SingleXPUStrategy(device_index=xpu_index)
+    return "cpu", 1, None
+
+
+def format_training_device_message(
+    *,
+    effective: str,
+    xpu_index: int = 0,
+    cuda_devices: int = 1,
+) -> str:
+    """Human-readable device line printed before Lightning Trainer starts."""
+    if effective == "xpu":
+        suffix = ""
+        if xpu_is_available():
+            try:
+                suffix = f" ({torch.xpu.get_device_name(xpu_index)})"
+            except Exception:
+                pass
+        return (
+            f"Using Intel XPU: xpu:{xpu_index}{suffix} "
+            "(Lightning's 'GPU available' line refers to CUDA only)"
+        )
+    if effective == "cuda":
+        suffix = ""
+        if torch.cuda.is_available():
+            try:
+                suffix = f" ({torch.cuda.get_device_name(0)})"
+            except Exception:
+                pass
+        return f"Using CUDA: {cuda_devices} device(s){suffix}"
+    return "Using CPU"
 
 
 def build_training_module(
@@ -196,6 +269,8 @@ def run_training(
     *,
     resume: Path | None = None,
     gpus: int = 1,
+    accelerator: str = "auto",
+    xpu_index: int = 0,
     precision: str | None = None,
     batch_size: int | None = None,
     epochs: int | None = None,
@@ -239,20 +314,47 @@ def run_training(
         mode="min",
     )
 
-    resolved_precision = resolve_precision(precision or training_cfg.get("precision", "32-true"))
-    accelerator = "gpu" if gpus > 0 and torch.cuda.is_available() else "cpu"
-    devices = gpus if accelerator == "gpu" else 1
+    effective = _effective_accelerator(accelerator, gpus)
+    if effective == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but torch.cuda.is_available() is False")
+    if effective == "xpu" and not xpu_is_available():
+        raise RuntimeError(
+            "XPU requested but torch.xpu.is_available() is False. "
+            "Install PyTorch XPU wheels and Intel GPU drivers — see README.md."
+        )
 
-    trainer = Trainer(
-        max_epochs=int(training_cfg.get("epochs", 50)),
-        accelerator=accelerator,
-        devices=devices,
-        precision=resolved_precision,
-        gradient_clip_val=float(training_cfg.get("gradient_clip", 1.0)),
-        callbacks=[checkpoint_cb],
-        enable_progress_bar=True,
-        log_every_n_steps=1,
+    resolved_precision = resolve_precision(
+        precision or training_cfg.get("precision", "32-true"),
+        accelerator=effective,
     )
+    trainer_accelerator, devices, strategy = resolve_trainer_devices(
+        accelerator=accelerator,
+        gpus=gpus,
+        xpu_index=xpu_index,
+    )
+
+    trainer_kwargs: dict[str, Any] = {
+        "max_epochs": int(training_cfg.get("epochs", 50)),
+        "devices": devices,
+        "precision": resolved_precision,
+        "gradient_clip_val": float(training_cfg.get("gradient_clip", 1.0)),
+        "callbacks": [checkpoint_cb],
+        "enable_progress_bar": True,
+        "log_every_n_steps": 1,
+    }
+    if strategy is not None:
+        trainer_kwargs["strategy"] = strategy
+    else:
+        trainer_kwargs["accelerator"] = trainer_accelerator
+
+    device_msg = format_training_device_message(
+        effective=effective,
+        xpu_index=xpu_index,
+        cuda_devices=devices,
+    )
+    print(device_msg)
+
+    trainer = Trainer(**trainer_kwargs)
     trainer.fit(
         module,
         train_dataloaders=train_loader,

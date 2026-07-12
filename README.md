@@ -11,9 +11,9 @@ OMR model training has fundamentally different requirements from the image proce
 | | ghh | chant-omr |
 |---|---|---|
 | Purpose | Process photos → searchable PDF | Train OMR model |
-| Runs on | User's laptop | Cloud GPU (A100/H100) |
-| Dependencies | ~200 MB (OpenCV, Pillow) | ~5 GB (PyTorch, CUDA) |
-| Output | PDF files | Model weights (.safetensors) |
+| Runs on | User's laptop (Intel Arc via OpenVINO) | Cloud NVIDIA GPU or **local Intel Arc (PyTorch XPU)** |
+| Dependencies | ~200 MB (OpenCV, Pillow) + OpenVINO for AI/OMR | ~5 GB (PyTorch, Lightning) |
+| Output | PDF files (+ `.gabc` with `ghh omr`) | Model weights (.safetensors) / OpenVINO IR |
 | Users | Anyone digitizing chant books | Model trainer (you) |
 
 Once trained, the model is exported to OpenVINO IR and consumed by ghh's Stage 13 on any Intel hardware, without needing PyTorch at all.
@@ -183,7 +183,7 @@ Real-world evaluation requires manually transcribing 20-30 pages from each book 
 
 ## Training
 
-### Cloud GPU (recommended)
+### Cloud GPU (NVIDIA — full training)
 
 Rent a GPU for 8-24 hours. Estimated costs for full training:
 
@@ -205,21 +205,74 @@ python scripts/download_gregobase.py
 python scripts/render_dataset.py
 python scripts/train_tokenizer.py
 
-# Train
-python scripts/train.py --config configs/default.yaml --precision bf16-mixed
+# Train (CUDA)
+python scripts/train.py --accelerator cuda --precision bf16-mixed
 ```
 
-### Local (Intel Arc -- prototyping only)
+### Local Intel Arc (XPU — prototyping / overfit)
 
-Possible for small experiments on a subset of data. Not recommended for full training runs.
+Training on **CPU alone is very slow** for the ~59M model. On a Fedora laptop with
+Intel Arc, use **native PyTorch XPU** wheels (not legacy IPEX — Intel retired IPEX
+in favour of upstream `torch.xpu`; see
+[PyTorch Intel GPU notes](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html)).
+
+PyTorch Lightning has **no built-in `accelerator="xpu"`** yet; chant-omr ships a
+small `SingleXPUStrategy` bridge (`chant_omr/training/xpu_strategy.py`).
+
+#### 1. Intel GPU driver + compute runtime (Fedora)
 
 ```bash
-# Intel Extension for PyTorch
-pip install intel-extension-for-pytorch
-
-# Train on a small subset for debugging
-python scripts/train.py --config configs/default.yaml --batch-size 2 --epochs 5
+sudo dnf install intel-compute-runtime oneapi-level-zero
+sudo usermod -aG render "$USER"   # re-login required
 ```
+
+Details: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md). Optional OneAPI toolkit
+(`intel-oneapi-base-toolkit`) provides `sycl-ls` after `source /opt/intel/oneapi/setvars.sh` — not required for pip PyTorch XPU.
+
+#### 2. PyTorch XPU wheels (replace CUDA/other torch builds)
+
+Your venv must use the **`xpu` wheel index**, not `+cu*` builds. In an activated venv:
+
+```bash
+pip uninstall -y torch torchvision torchaudio
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+pip install -e ".[dev]"
+```
+
+Check:
+
+```bash
+python -c "import torch; print(torch.__version__); print('xpu', torch.xpu.is_available()); \
+print(torch.xpu.get_device_name(0) if torch.xpu.is_available() else 'no xpu')"
+```
+
+#### 3. Train on Arc
+
+```bash
+source .venv/bin/activate
+
+# Overfit smoke test on Intel GPU
+python scripts/train.py \
+  --accelerator xpu \
+  --overfit-n 10 \
+  --batch-size 2 \
+  --epochs 20
+```
+
+With `--accelerator auto` (default), chant-omr picks **CUDA → XPU → CPU** when
+`--gpus 1`. Force CPU with `--accelerator cpu` or `--gpus 0`.
+
+**Precision on Arc:** config `bf16-mixed` is mapped to **`bf16-true`** automatically
+(Intel Arc A-series lacks FP64 for AMP GradScaler). Override with
+`--precision bf16-true` or `--precision 32-true` if needed.
+
+**Scope:** Arc XPU is fine for overfit runs and experiments; **full corpus training**
+(50 epochs, batch 8) is still faster on cloud NVIDIA (Grace Hopper / A100).
+
+#### Production inference (OpenVINO, not PyTorch XPU)
+
+End-user OMR in **ghh** runs **OpenVINO** on Arc/NPU after export (#13b) — that path
+does not require PyTorch XPU at runtime. See [Inference & Deployment](#inference--deployment).
 
 ### Training Recipe
 
@@ -232,7 +285,7 @@ Following Transcoda's approach:
 | Weight decay | 0.05 |
 | Scheduler | Cosine with linear warmup (5% of steps) |
 | Gradient clipping | max_norm = 1.0 |
-| Precision | bf16-mixed (A100/H100) or fp16-mixed (T4/V100) |
+| Precision | bf16-mixed (A100/H100) or fp16-mixed (T4/V100); **bf16-true** on Intel Arc XPU |
 | Batch size | 8-16 per GPU |
 | Epochs | 50-100 (monitor val loss plateau) |
 
@@ -269,6 +322,7 @@ ghh downloads the model, runs inference via OpenVINO on the user's Intel hardwar
 
 - **[PLAN.md](PLAN.md)** — technical implementation plan (spec, status, GregoBase/Gregorio details)
 - **[docs/adr/](docs/adr/README.md)** — architecture decision records (why we chose X over Y)
+- **[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)** — Python extras, PyTorch backends, Fedora RPMs
 - **[benchmarks/README.md](benchmarks/README.md)** — manual evaluation benchmark workflow
 - **[GitHub Issues](https://github.com/pgarciaq/chant-omr/issues)** — tracked implementation tasks
 
@@ -321,6 +375,8 @@ For reference, Transcoda achieves 18.5% OMR-NED on synthetic modern notation and
 
 ## Development
 
+Full dependency matrix: **[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)**.
+
 ```bash
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -328,12 +384,19 @@ pytest
 ruff check chant_omr tests scripts
 ```
 
-**System deps (rendering only):**
+**Fedora RPMs:**
 
 ```bash
+# Gregorio rendering
 sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
   texlive-metapost poppler-utils
+
+# Intel Arc GPU (PyTorch XPU + OpenVINO)
+sudo dnf install intel-compute-runtime oneapi-level-zero
+sudo usermod -aG render "$USER"   # re-login for GPU access
 ```
+
+Then install **PyTorch XPU wheels** in the venv (see docs/DEPENDENCIES.md).
 
 | Package | Purpose |
 |---------|---------|
@@ -342,6 +405,8 @@ sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
 | `texlive-libertinus-fonts` | Libertinus Serif via `fontspec` |
 | `texlive-metapost` | `plain.mp` for scores using Metapost/luamplib |
 | `poppler-utils` | `pdftoppm` (PDF → PNG) |
+| `intel-compute-runtime` | Intel GPU NEO driver (OpenCL/Level Zero) |
+| `oneapi-level-zero` | Level Zero loader for PyTorch XPU / OpenVINO GPU |
 
 ## License
 

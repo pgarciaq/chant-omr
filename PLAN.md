@@ -70,6 +70,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 2.3 | Model assembly | #11 | **Done** | model |
 | 2.3a | Encoder padding mask in collate | #32 | **Done** | dataset |
 | 3.1 | Lightning training | #12 | **Done** | lightning |
+| 3.1b | Intel Arc XPU training | #38 | **Done** | device |
 | 4.1 | Inference + export | #13 | Pending | — |
 | 4.2 | Benchmark evaluation | #14 | Pending | — |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
@@ -580,6 +581,15 @@ few epochs. Proves data → model → loss pipeline on local hardware.
 
 **Cloud training:** RunPod/Lambda A100, 8–16 hours, ~$15–35 full run.
 
+### 3.1b Intel Arc XPU training ([#38](https://github.com/pgarciaq/chant-omr/issues/38))
+
+Native `torch.xpu` via `SingleXPUStrategy` (Lightning has no `accelerator="xpu"`).
+CLI: `--accelerator auto|cuda|xpu|cpu`, `--xpu-index`. Startup log clarifies device
+(Lightning's "GPU available" is CUDA-only).
+
+**Device flags elsewhere:** `train` (#38); `predict` (#13a); `evaluate` (#14, PyTorch
+checkpoint path). **Not** `render` / `download` / `train-tokenizer` (CPU-only).
+
 ---
 
 ## Epic 4: Evaluation and Deployment
@@ -592,6 +602,9 @@ Two phases within [#13](https://github.com/pgarciaq/chant-omr/issues/13):
 |-------|--------|
 | **13a** | PyTorch `predict_gabc()`, beam search, checkpoint load, GABC assembly |
 | **13b** | OpenVINO IR + safetensors export; CLI `export` |
+
+**Device selection (13a):** `predict --device auto|cuda|xpu|cpu` — reuse training
+resolver; production deploy uses OpenVINO (#15), not PyTorch XPU. See [#13](https://github.com/pgarciaq/chant-omr/issues/13).
 
 - Beam search (width 3), repetition penalty 1.1
 - Export: OpenVINO IR (primary for ghh), ONNX optional, safetensors for weights
@@ -848,6 +861,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 2.3 | #11 | `test_model.py` | E2E forward, param count ~59M | — |
 | 2.3a | #32 | `test_dataset.py` | Encoder padding mask in collate | Mixed-height batch |
 | 3.1 | #12 | `test_lightning.py` | One training step on synthetic batch | Overfit 10 samples |
+| 3.1b | #38 | `test_training_device.py` | Device/precision resolver | Overfit on Arc (`--accelerator xpu`) |
 | 4.1 | #13 | `test_predict.py`, `test_export.py` | GABC output parses; export artifacts exist | Predict on rendered PNG |
 | 4.2 | #14 | `test_evaluate.py` | Metrics on fixture pairs; empty dir no-op | Run on `benchmarks/` |
 | 4.3 | #15 | — (ghh repo) | — | `ghh omr` end-to-end |
@@ -890,6 +904,8 @@ GABC response bodies (bare, elem=1, duplicate SHA).
 
 ## Development
 
+Full matrix: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+
 ```bash
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -897,12 +913,23 @@ pytest
 ruff check chant_omr tests scripts
 ```
 
-**System deps (rendering):**
+**Fedora RPMs:**
+
+| Package group | Packages | Purpose |
+|---------------|----------|---------|
+| Rendering | `texlive-gregoriotex`, `texlive-luatex`, `texlive-libertinus-fonts`, `texlive-metapost`, `poppler-utils` | Gregorio → PNG |
+| Intel GPU | `intel-compute-runtime`, `oneapi-level-zero` | PyTorch XPU training, OpenVINO GPU |
+| Optional | `intel-oneapi-base-toolkit` | `sycl-ls`, compilers (not required for pip PyTorch) |
 
 ```bash
 sudo dnf install texlive-gregoriotex texlive-luatex texlive-libertinus-fonts \
   texlive-metapost poppler-utils
+sudo dnf install intel-compute-runtime oneapi-level-zero
+sudo usermod -aG render "$USER"
 ```
+
+**PyTorch backend:** reinstall `torch` from CUDA, XPU, or CPU wheel index after
+`pip install -e .` — see docs/DEPENDENCIES.md. Train with `--accelerator xpu` on Arc.
 
 ---
 

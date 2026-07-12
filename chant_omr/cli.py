@@ -14,12 +14,20 @@ def main():
 @main.command()
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option("--resume", type=click.Path(exists=True), default=None, help="Resume from checkpoint")
-@click.option("--gpus", type=int, default=1)
+@click.option("--gpus", type=int, default=1, help="GPU count (CUDA) or enable GPU (auto/XPU)")
+@click.option(
+    "--accelerator",
+    type=click.Choice(["auto", "cuda", "xpu", "cpu"]),
+    default="auto",
+    show_default=True,
+    help="Training device: auto prefers CUDA, then Intel XPU, then CPU",
+)
+@click.option("--xpu-index", type=int, default=0, show_default=True, help="Intel XPU device index")
 @click.option("--epochs", type=int, default=None, help="Override config epochs")
 @click.option("--batch-size", type=int, default=None, help="Override config batch size")
 @click.option("--precision", type=str, default=None, help="Override config precision")
 @click.option("--overfit-n", type=int, default=None, help="Train on first N samples (smoke test)")
-def train(config, resume, gpus, epochs, batch_size, precision, overfit_n):
+def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, precision, overfit_n):
     """Train the OMR model."""
     from pathlib import Path
 
@@ -29,6 +37,8 @@ def train(config, resume, gpus, epochs, batch_size, precision, overfit_n):
         Path(config),
         resume=Path(resume) if resume else None,
         gpus=gpus,
+        accelerator=accelerator,
+        xpu_index=xpu_index,
         epochs=epochs,
         batch_size=batch_size,
         precision=precision,
