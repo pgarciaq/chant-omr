@@ -72,7 +72,7 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
     help="Override config inference.repetition_penalty",
 )
 @click.option("--name", type=str, default=None, help="GABC name: header (default: OMR output)")
-@click.option("--output", type=click.Path(), default=None, help="Output GABC file path")
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output GABC file path")
 def predict(
     image_path,
     checkpoint_path,
