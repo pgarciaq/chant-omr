@@ -33,6 +33,25 @@ Architecture decision records: [docs/adr/](docs/adr/README.md).
 7. **Deploy via OpenVINO**: Train in PyTorch; export OpenVINO IR for ghh
    inference on Intel Arc GPU/NPU without PyTorch at runtime.
 
+## Release milestones
+
+High-level product stages. Actionable work stays in GitHub issues; rationale for
+inference and headers is in [ADR 0012](docs/adr/0012-openvino-export-and-inference-deployment.md)
+and [ADR 0013](docs/adr/0013-gabc-output-assembly-and-headers.md).
+
+| | **v0** | **v1** |
+|--|--------|--------|
+| **Goal** | End-to-end pipeline works on synthetic Gregorio renders | Usable on **ghh dewarped real scans** |
+| **Notation** | Plain square GABC only ([ADR 0007](docs/adr/0007-nabc-deferred-for-v0.md)) | Same; NABC remains Epic 5 |
+| **Training** | GregoBase synthetic corpus; overfit gate passes | + domain augmentation ([#30](https://github.com/pgarciaq/chant-omr/issues/30)); full cloud train |
+| **Quality bar** | Overfit 10 samples (loss → ~0); predict runs without error | Benchmark targets ([#14](https://github.com/pgarciaq/chant-omr/issues/14)): GED, neume accuracy |
+| **Inference** | PyTorch predict (#13a) + OpenVINO export (#13b) | `ghh omr` on Arc ([#15](https://github.com/pgarciaq/chant-omr/issues/15)) |
+| **GABC headers** | Minimal template (`name: OMR output;` + body) | **ghh injects metadata**; model still predicts body only |
+| **Deferred** | NABC, grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36)), HF upload | — |
+
+**Do not add a separate ROADMAP.md** — this table plus the issue tracker and ADRs
+are the roadmap. Splitting docs would duplicate the status table below and drift.
+
 ## Implementation Status
 
 | Step | Component | Issue | Status | Tests |
@@ -567,9 +586,19 @@ few epochs. Proves data → model → loss pipeline on local hardware.
 
 ### 4.1 Inference + Export
 
+Two phases within [#13](https://github.com/pgarciaq/chant-omr/issues/13):
+
+| Phase | Scope |
+|-------|--------|
+| **13a** | PyTorch `predict_gabc()`, beam search, checkpoint load, GABC assembly |
+| **13b** | OpenVINO IR + safetensors export; CLI `export` |
+
 - Beam search (width 3), repetition penalty 1.1
-- Export: OpenVINO IR (primary), ONNX, safetensors
-- HuggingFace: `pgarciaq/chant-omr`
+- Export: OpenVINO IR (primary for ghh), ONNX optional, safetensors for weights
+- HuggingFace upload (`pgarciaq/chant-omr`) — **deferred**
+- GABC assembly: body from model, headers per [ADR 0013](docs/adr/0013-gabc-output-assembly-and-headers.md)
+- OpenVINO strategy: [ADR 0012](docs/adr/0012-openvino-export-and-inference-deployment.md)
+- Deferred: grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36))
 
 ### 4.2 Benchmark Evaluation
 
@@ -851,7 +880,9 @@ GABC response bodies (bare, elem=1, duplicate SHA).
 |------|------|---------------------|
 | Downloader smoke | Close #5 | `chant-omr download --limit 50` + resume on re-run |
 | Renderer batch | Close #6 | >90% render success on 50 **plain** GABC files |
-| Pipeline smoke | Close #12 | Overfit 10 samples, loss → ~0 |
+| Pipeline smoke | After rendered data + tokenizer; **before full cloud train** | `python scripts/train.py --overfit-n 10 --batch-size 2 --epochs 20` → loss → ~0 |
+| Predict smoke | After overfit checkpoint; **#13a** | `chant-omr predict` on one rendered PNG |
+| OpenVINO smoke | After overfit checkpoint; **#13b** | Export IR loads on Arc |
 | Benchmark eval | Close #14 | `evaluate` prints GED + neume accuracy |
 | Consumer | Close #15 | `ghh omr` writes `.gabc` on dewarped page |
 

@@ -42,6 +42,8 @@ already-documented pattern.
 | [0009](0009-mlp-projector-and-2d-sinusoidal-bridge.md) | MLP projector and 2D sinusoidal bridge | Accepted |
 | [0010](0010-encoder-padding-mask-in-collate.md) | Encoder padding mask in dataset collate | Accepted |
 | [0011](0011-teacher-forcing-cross-entropy-loss.md) | Teacher-forcing cross-entropy training loss | Accepted |
+| [0012](0012-openvino-export-and-inference-deployment.md) | OpenVINO export and inference deployment | Accepted |
+| [0013](0013-gabc-output-assembly-and-headers.md) | GABC output assembly and header policy | Accepted |
 
 ## Template
 

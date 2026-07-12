@@ -36,6 +36,13 @@ wires it from the data pipeline.
 - Slightly larger batch dict; mask computation each collate step.
 - Assumes encoder stride 32 stays aligned with ConvNeXt-V2 (documented in encoder).
 
+### Inference (single image)
+
+At predict time there is **no batch padding**: one resized image, all encoder patches
+are valid. `encoder_attention_mask` may be omitted or all-ones; #32 mask logic applies
+only when batching mixed heights in training ([ADR 0012](0012-openvino-export-and-inference-deployment.md)
+fixed-height pad at export is separate).
+
 ## Alternatives considered
 
 | Alternative | Why not |
