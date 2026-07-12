@@ -49,16 +49,76 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 @main.command()
 @click.argument("image_path", type=click.Path(exists=True))
 @click.option(
-    "--model",
-    type=str,
-    default="pgarciaq/chant-omr",
-    help="Model path or HuggingFace ID",
+    "--checkpoint",
+    "checkpoint_path",
+    type=click.Path(exists=True),
+    required=True,
+    help="Lightning .ckpt checkpoint path",
 )
-@click.option("--device", type=str, default="auto")
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "xpu", "cpu"]),
+    default="auto",
+    show_default=True,
+)
+@click.option("--xpu-index", type=int, default=0, show_default=True)
+@click.option("--beam-width", type=int, default=None, help="Override config inference.beam_width")
+@click.option("--max-length", type=int, default=None, help="Override config inference.max_length")
+@click.option(
+    "--repetition-penalty",
+    type=float,
+    default=None,
+    help="Override config inference.repetition_penalty",
+)
+@click.option("--name", type=str, default=None, help="GABC name: header (default: OMR output)")
 @click.option("--output", type=click.Path(), default=None, help="Output GABC file path")
-def predict(image_path, model, device, output):
+def predict(
+    image_path,
+    checkpoint_path,
+    config,
+    device,
+    xpu_index,
+    beam_width,
+    max_length,
+    repetition_penalty,
+    name,
+    output,
+):
     """Run OMR on a single image and output GABC."""
-    click.echo(f"Predicting: {image_path}")
+    from pathlib import Path
+
+    import yaml
+
+    from chant_omr.inference.predict import predict_gabc
+
+    cfg_path = Path(config)
+    with cfg_path.open(encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh) or {}
+    infer_cfg = cfg.get("inference", {})
+
+    gabc = predict_gabc(
+        Path(image_path),
+        Path(checkpoint_path),
+        config_path=cfg_path,
+        device=device,
+        xpu_index=xpu_index,
+        beam_width=int(beam_width if beam_width is not None else infer_cfg.get("beam_width", 3)),
+        max_length=int(max_length if max_length is not None else infer_cfg.get("max_length", 2048)),
+        repetition_penalty=float(
+            repetition_penalty
+            if repetition_penalty is not None
+            else infer_cfg.get("repetition_penalty", 1.1)
+        ),
+        name=name,
+    )
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(gabc, encoding="utf-8")
+        click.echo(f"Wrote {out_path}")
+    else:
+        click.echo(gabc)
 
 
 @main.command()
