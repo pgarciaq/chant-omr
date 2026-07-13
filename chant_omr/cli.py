@@ -134,13 +134,44 @@ def predict(
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["openvino", "onnx", "safetensors"]),
+    type=click.Choice(["openvino", "safetensors"]),
     default="openvino",
 )
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option("--output-dir", type=click.Path(), default="models/")
-def export(checkpoint, fmt, output_dir):
-    """Export a trained model for inference."""
-    click.echo(f"Exporting {checkpoint} to {fmt}")
+@click.option("--verify", is_flag=True, help="Run parity check after OpenVINO export")
+def export(checkpoint, fmt, config, output_dir, verify):
+    """Export encoder + decoder (OpenVINO IR) or full weights (safetensors)."""
+    from pathlib import Path
+
+    from chant_omr.inference.export import (
+        export_decoder_openvino,
+        export_openvino,
+        export_safetensors,
+        verify_decoder_openvino_parity,
+        verify_openvino_parity,
+    )
+
+    ckpt = Path(checkpoint)
+    cfg = Path(config)
+    out = Path(output_dir)
+
+    if fmt == "openvino":
+        enc_xml = export_openvino(ckpt, out, config_path=cfg)
+        click.echo(f"Encoder IR: {enc_xml}")
+        dec_xml = export_decoder_openvino(ckpt, out, config_path=cfg)
+        click.echo(f"Decoder IR: {dec_xml}")
+        click.echo(f"OpenVINO IR written to {out}/")
+        if verify:
+            enc_diff = verify_openvino_parity(ckpt, enc_xml, config_path=cfg)
+            click.echo(f"Encoder parity passed (max abs diff: {enc_diff:.6e})")
+            dec_diff = verify_decoder_openvino_parity(
+                ckpt, dec_xml, config_path=cfg,
+            )
+            click.echo(f"Decoder parity passed (max abs diff: {dec_diff:.6e})")
+    elif fmt == "safetensors":
+        st = export_safetensors(ckpt, out, config_path=cfg)
+        click.echo(f"Safetensors written to {st}")
 
 
 @main.command()

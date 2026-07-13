@@ -71,7 +71,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 2.3a | Encoder padding mask in collate | #32 | **Done** | dataset |
 | 3.1 | Lightning training | #12 | **Done** | lightning |
 | 3.1b | Intel Arc XPU training | #38 | **Done** | device |
-| 4.1 | Inference + export | #13 | Pending | — |
+| 4.1 | Inference + export | #13 | **Done** (13a + 13b) | inference, export |
 | 4.2 | Benchmark evaluation | #14 | Pending | — |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
 
@@ -636,6 +636,52 @@ resolver; production deploy uses OpenVINO (#15), not PyTorch XPU. See [#13](http
 - GABC assembly: body from model, headers per [ADR 0013](docs/adr/0013-gabc-output-assembly-and-headers.md)
 - OpenVINO strategy: [ADR 0012](docs/adr/0012-openvino-export-and-inference-deployment.md)
 - Deferred: grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36))
+
+##### 13b implementation details
+
+`chant-omr export CHECKPOINT --format openvino|safetensors` produces deployment
+artifacts in `--output-dir` (default `models/`).
+
+**OpenVINO encoder export** traces the encoder path (ConvNeXt-V2 backbone →
+2D sinusoidal positional encoding → MLP projector) to ONNX, then converts to
+OpenVINO IR (`encoder.xml` + `encoder.bin`).  The exported graph is fully
+static-shape at the fixed canvas size (1600 × 1050):
+
+    pixel_values (1, 3, 1600, 1050) → encoder_memory (1, 1600, d_model)
+
+At inference time, variable-height images are padded to the canvas and an
+`encoder_attention_mask` marks valid patches — same as
+`build_encoder_attention_mask` in `collate_fn`.
+
+**Safetensors export** saves full model weights (encoder + decoder) to
+`model.safetensors` for portable distribution.
+
+Both formats write a `manifest.json` with model config, canvas size, stride,
+patch count, and source checkpoint path.  `--verify` runs a parity check
+(PyTorch vs OpenVINO on random input, max abs diff < 2e-3; typical ~9e-4).
+
+##### #41 Decoder-step OpenVINO export
+
+`chant-omr export` now also exports a **decoder single-step** IR
+(`decoder.xml` + `decoder.bin`) with dynamic axes for both sequence length
+(``T``) and encoder patch count (``N``):
+
+    input_ids      (1, T)              int64
+    encoder_memory (1, N, d_model)     float32
+    → next_logits  (1, 1, vocab_size)  float32
+
+The beam search loop was refactored into a backend-agnostic ``LogitsFunc``
+callable protocol (`beam_search.py`).  Both PyTorch and OpenVINO backends
+plug in as different callables — the decode logic (greedy, beam, repetition
+penalty) is shared.
+
+`ov_decode.py` provides the full PyTorch-free pipeline:
+`load_openvino_models(dir)` → `ov_decode_token_ids(enc, dec, pixels, …)`.
+This is the inference contract for ghh (#15).
+
+**Performance note:** without KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36)),
+each decoder step re-processes all previous tokens — O(n²) total compute.
+Acceptable for v0 typical scores (~200-400 tokens).
 
 ### 4.2 Benchmark Evaluation
 

@@ -1,7 +1,13 @@
-"""Autoregressive decoding with greedy and beam search."""
+"""Autoregressive decoding with greedy and beam search.
+
+Supports both PyTorch and OpenVINO backends via the ``LogitsFunc`` callable
+protocol: any function ``(token_ids, encoder_memory) → log_probs (vocab,)``
+can drive the decode loop.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
@@ -9,6 +15,9 @@ import torch.nn.functional as F
 
 from chant_omr.model.chant_omr_model import ChantOMR
 from chant_omr.model.tokenizer import GABCTokenizer
+
+LogitsFunc = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+"""``(input_ids (1, T), encoder_memory (1, N, D)) → log_probs (vocab,)``"""
 
 
 @dataclass(frozen=True)
@@ -37,20 +46,32 @@ def apply_repetition_penalty(
     return adjusted
 
 
+def pytorch_logits_func(model: ChantOMR) -> LogitsFunc:
+    """Return a ``LogitsFunc`` backed by the PyTorch decoder."""
+
+    def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
+        attention_mask = torch.ones_like(input_ids)
+        logits = model.decoder(
+            input_ids,
+            memory,
+            attention_mask=attention_mask,
+            encoder_attention_mask=None,
+        )
+        return F.log_softmax(logits[0, -1], dim=-1)
+
+    return _step
+
+
 def _decoder_step_logits(
     model: ChantOMR,
     memory: torch.Tensor,
     input_ids: torch.Tensor,
 ) -> torch.Tensor:
-    """Return next-token log-probs ``(vocab,)`` for the final position."""
-    attention_mask = torch.ones_like(input_ids)
-    logits = model.decoder(
-        input_ids,
-        memory,
-        attention_mask=attention_mask,
-        encoder_attention_mask=None,
-    )
-    return F.log_softmax(logits[0, -1], dim=-1)
+    """Return next-token log-probs ``(vocab,)`` for the final position.
+
+    Kept for backward compatibility — delegates to ``pytorch_logits_func``.
+    """
+    return pytorch_logits_func(model)(input_ids, memory)
 
 
 def greedy_decode(
@@ -63,18 +84,14 @@ def greedy_decode(
     repetition_penalty: float = 1.0,
 ) -> list[int]:
     """Greedy left-to-right decode starting from BOS."""
-    device = memory.device
-    tokens = [bos_token_id]
-    for _ in range(max_length - 1):
-        input_ids = torch.tensor([tokens], dtype=torch.long, device=device)
-        log_probs = _decoder_step_logits(model, memory, input_ids)
-        logits = log_probs.clone()
-        logits = apply_repetition_penalty(logits, tokens, repetition_penalty)
-        next_id = int(torch.argmax(logits).item())
-        tokens.append(next_id)
-        if next_id == eos_token_id:
-            break
-    return tokens
+    return greedy_decode_generic(
+        pytorch_logits_func(model),
+        memory,
+        bos_token_id=bos_token_id,
+        eos_token_id=eos_token_id,
+        max_length=max_length,
+        repetition_penalty=repetition_penalty,
+    )
 
 
 def beam_search_decode(
@@ -88,6 +105,57 @@ def beam_search_decode(
     repetition_penalty: float = 1.0,
 ) -> list[int]:
     """Beam search decode for batch size 1 encoder memory."""
+    return beam_search_decode_generic(
+        pytorch_logits_func(model),
+        memory,
+        bos_token_id=bos_token_id,
+        eos_token_id=eos_token_id,
+        max_length=max_length,
+        beam_width=beam_width,
+        repetition_penalty=repetition_penalty,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Generic decode loops — backend-agnostic via LogitsFunc
+# ---------------------------------------------------------------------------
+
+
+def greedy_decode_generic(
+    logits_fn: LogitsFunc,
+    memory: torch.Tensor,
+    *,
+    bos_token_id: int,
+    eos_token_id: int,
+    max_length: int,
+    repetition_penalty: float = 1.0,
+) -> list[int]:
+    """Greedy decode using any ``LogitsFunc`` backend."""
+    device = memory.device
+    tokens = [bos_token_id]
+    for _ in range(max_length - 1):
+        input_ids = torch.tensor([tokens], dtype=torch.long, device=device)
+        log_probs = logits_fn(input_ids, memory)
+        logits = log_probs.clone()
+        logits = apply_repetition_penalty(logits, tokens, repetition_penalty)
+        next_id = int(torch.argmax(logits).item())
+        tokens.append(next_id)
+        if next_id == eos_token_id:
+            break
+    return tokens
+
+
+def beam_search_decode_generic(
+    logits_fn: LogitsFunc,
+    memory: torch.Tensor,
+    *,
+    bos_token_id: int,
+    eos_token_id: int,
+    max_length: int,
+    beam_width: int,
+    repetition_penalty: float = 1.0,
+) -> list[int]:
+    """Beam search decode using any ``LogitsFunc`` backend."""
     device = memory.device
     beams: list[tuple[list[int], float]] = [([bos_token_id], 0.0)]
     finished: list[tuple[list[int], float]] = []
@@ -99,11 +167,13 @@ def beam_search_decode(
                 finished.append((tokens, score))
                 continue
             input_ids = torch.tensor([tokens], dtype=torch.long, device=device)
-            log_probs = _decoder_step_logits(model, memory, input_ids)
+            log_probs = logits_fn(input_ids, memory)
             logits = log_probs.clone()
             logits = apply_repetition_penalty(logits, tokens, repetition_penalty)
             topk = torch.topk(logits, k=min(beam_width, logits.numel()))
-            for log_prob, token_id in zip(topk.values.tolist(), topk.indices.tolist(), strict=True):
+            for log_prob, token_id in zip(
+                topk.values.tolist(), topk.indices.tolist(), strict=True
+            ):
                 candidates.append((tokens + [token_id], score + log_prob))
 
         if not candidates:
