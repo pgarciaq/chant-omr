@@ -288,11 +288,18 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
         show_progress=show_progress,
     )
     worker_count = resolve_render_workers(workers)
+    pct = f" ({stats.success_rate:.0%})" if stats.attempted else ""
     click.echo(
         f"Manifest ok: {stats.manifest_ok} | Attempted: {stats.attempted} | "
-        f"Rendered: {stats.rendered} | Skipped: {stats.skipped} | Failed: {stats.failed} | "
-        f"Workers: {worker_count}"
+        f"Rendered: {stats.rendered}{pct} | Skipped: {stats.skipped} | "
+        f"Failed: {stats.failed} | Workers: {worker_count}"
     )
+    if stats.skipped_nabc or stats.failed_missing or stats.failed_compile:
+        click.echo(
+            f"  NABC skipped: {stats.skipped_nabc} | "
+            f"Missing GABC: {stats.failed_missing} | "
+            f"Compile errors: {stats.failed_compile}"
+        )
 
 
 @main.command("train-tokenizer")

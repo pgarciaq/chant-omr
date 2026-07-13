@@ -63,6 +63,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 1.2d | Parallel render workers + TeX cache | #31 | **Done** | renderer |
 | 1.3 | BPE tokenizer | #7 | **Done** | tokenizer |
 | 1.4 | Dataset (Phase A) | #8 | **Done** | dataset |
+| 1.2e | Render batch reporting + skip counters | #27 | **Done** | renderer |
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
 | 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
 | 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
@@ -816,8 +817,11 @@ plain GregoBase file already exists.
 | 5.4 | [#26](https://github.com/pgarciaq/chant-omr/issues/26) | Download plain catalog twin instead of deriving |
 | 5.5 | [#28](https://github.com/pgarciaq/chant-omr/issues/28) | This PLAN section |
 
-**Epic #1 related:** [#27](https://github.com/pgarciaq/chant-omr/issues/27) — render batch
-success % and NABC/empty/compile skip counters.
+**Epic #1 related:** [#27](https://github.com/pgarciaq/chant-omr/issues/27) (Done) — render
+batch now reports success %, NABC skips, missing-GABC failures, and compile
+errors as separate counters. NABC entries are reclassified as skips (not
+failures). `RenderFailure` records include a `category` field in
+`render_failures.jsonl`.
 
 ### Out of scope
 
@@ -960,7 +964,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 1.1 | #5 | `test_gregobase.py` | Catalog, elem, updates, manifest, rate limit | `download --limit 50` live |
 | 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 plain GABC |
 | 1.2d | #31 | `test_renderer.py` | `resolve_render_workers`, parallel corpus | Bulk render with auto workers |
-| 1.2e | #27 | — | — | Success % + skip counters in CLI output |
+| 1.2e | #27 | `test_renderer.py` | `TestRenderStats` (tally, success_rate, categories) | CLI output with % and breakdown |
 | 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
 | 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant, collate | DataLoader batch |
 | 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |

@@ -10,7 +10,6 @@ import pytest
 
 from chant_omr.data import gregobase as gb
 from chant_omr.data import renderer as rd
-from chant_omr.data.gabc_parser import NABC_NOT_SUPPORTED
 
 FIXTURES = Path(__file__).parent / "fixtures" / "gregobase"
 RESPICE_GABC = FIXTURES / "respice_domine.gabc"
@@ -125,8 +124,67 @@ class TestRenderJobs:
         assert line["error"] == "boom"
 
 
+class TestRenderStats:
+    def test_success_rate_zero_attempted(self):
+        stats = rd.RenderStats()
+        assert stats.success_rate == 0.0
+
+    def test_success_rate_all_rendered(self):
+        stats = rd.RenderStats(attempted=10, rendered=10)
+        assert stats.success_rate == 1.0
+
+    def test_success_rate_partial(self):
+        stats = rd.RenderStats(attempted=4, rendered=3)
+        assert stats.success_rate == pytest.approx(0.75)
+
+    def test_tally_rendered(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("rendered")
+        assert stats.rendered == 1
+        assert stats.failed == 0
+
+    def test_tally_skipped(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("skipped")
+        assert stats.skipped == 1
+
+    def test_tally_skipped_nabc(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("skipped_nabc")
+        assert stats.skipped == 1
+        assert stats.skipped_nabc == 1
+        assert stats.failed == 0
+
+    def test_tally_failed_missing(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("failed_missing")
+        assert stats.failed == 1
+        assert stats.failed_missing == 1
+
+    def test_tally_failed_compile(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("failed_compile")
+        assert stats.failed == 1
+        assert stats.failed_compile == 1
+
+    def test_tally_unknown_counts_as_compile(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("something_unexpected")
+        assert stats.failed == 1
+        assert stats.failed_compile == 1
+
+    def test_failure_category_field(self):
+        f = rd.RenderFailure(1, None, "1.gabc", "boom", category="missing")
+        d = f.to_dict()
+        assert d["category"] == "missing"
+
+    def test_failure_default_category(self):
+        f = rd.RenderFailure(1, None, "1.gabc", "boom")
+        assert f.category == "compile"
+
+
 class TestRenderCorpusMocked:
-    def test_nabc_not_supported(self, tmp_path: Path):
+    def test_nabc_skipped(self, tmp_path: Path):
         gabc_dir = tmp_path / "gregobase"
         rendered_dir = tmp_path / "rendered"
         gabc_dir.mkdir()
@@ -152,9 +210,9 @@ class TestRenderCorpusMocked:
         with patch.object(rd, "toolchain_available", return_value=True):
             stats = rd.render_corpus(gabc_dir, rendered_dir, show_progress=False)
 
-        assert stats.failed == 1
-        failures = (rendered_dir / rd.FAILURES_FILENAME).read_text(encoding="utf-8")
-        assert NABC_NOT_SUPPORTED in failures
+        assert stats.skipped == 1
+        assert stats.skipped_nabc == 1
+        assert stats.failed == 0
 
     def test_missing_gabc_logs_failure(self, tmp_path: Path):
         gabc_dir = tmp_path / "gregobase"
@@ -183,8 +241,11 @@ class TestRenderCorpusMocked:
 
         assert stats.attempted == 1
         assert stats.failed == 1
+        assert stats.failed_missing == 1
         failures = (rendered_dir / rd.FAILURES_FILENAME).read_text(encoding="utf-8")
         assert "missing GABC" in failures
+        rec = json.loads(failures.strip())
+        assert rec["category"] == "missing"
 
 
 @pytest.mark.skipif(not rd.toolchain_available(), reason="Gregorio toolchain not installed")

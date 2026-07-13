@@ -75,6 +75,32 @@ class RenderStats:
     rendered: int = 0
     skipped: int = 0
     failed: int = 0
+    skipped_nabc: int = 0
+    failed_missing: int = 0
+    failed_compile: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        """Fraction of attempted jobs that rendered successfully."""
+        if self.attempted == 0:
+            return 0.0
+        return self.rendered / self.attempted
+
+    def _tally(self, status: str) -> None:
+        """Increment the appropriate counters for a job status string."""
+        if status == "rendered":
+            self.rendered += 1
+        elif status == "skipped":
+            self.skipped += 1
+        elif status == "skipped_nabc":
+            self.skipped += 1
+            self.skipped_nabc += 1
+        elif status == "failed_missing":
+            self.failed += 1
+            self.failed_missing += 1
+        else:
+            self.failed += 1
+            self.failed_compile += 1
 
 
 @dataclass
@@ -95,6 +121,7 @@ class RenderFailure:
     elem: int | None
     filename: str | None
     error: str
+    category: str = "compile"
     timestamp: str = field(
         default_factory=lambda: datetime.now(UTC).replace(microsecond=0).isoformat()
     )
@@ -105,6 +132,7 @@ class RenderFailure:
             "elem": self.elem,
             "filename": self.filename,
             "error": self.error,
+            "category": self.category,
             "timestamp": self.timestamp,
         }
 
@@ -350,14 +378,17 @@ def _render_job(
         error = f"missing GABC: {job.gabc_path}"
         append_failure_log(
             failures_path,
-            RenderFailure(job.entry.id, job.entry.elem, job.entry.filename, error),
+            RenderFailure(
+                job.entry.id, job.entry.elem, job.entry.filename, error,
+                category="missing",
+            ),
         )
-        return ("failed", False, error)
+        return ("failed_missing", False, error)
 
     try:
         raw_text = job.gabc_path.read_text(encoding="utf-8")
         if is_nabc_notation(raw_text):
-            raise ValueError(NABC_NOT_SUPPORTED)
+            return ("skipped_nabc", False, NABC_NOT_SUPPORTED)
 
         body_text = body_only_gabc_text(raw_text, name=job.entry.incipit or job.gabc_path.stem)
         stem = work_score_stem(job.entry.id, job.entry.elem)
@@ -374,9 +405,12 @@ def _render_job(
         error = str(exc)
         append_failure_log(
             failures_path,
-            RenderFailure(job.entry.id, job.entry.elem, job.entry.filename, error),
+            RenderFailure(
+                job.entry.id, job.entry.elem, job.entry.filename, error,
+                category="compile",
+            ),
         )
-        return ("failed", False, error)
+        return ("failed_compile", False, error)
 
 
 def _init_render_worker(cache_dir: str) -> None:
@@ -425,12 +459,7 @@ def render_corpus(
         _init_render_worker(str(cache_dir))
         for job in progress:
             status, _, _ = _render_job(job, dpi=dpi, force=force, failures_path=failures_path)
-            if status == "rendered":
-                stats.rendered += 1
-            elif status == "skipped":
-                stats.skipped += 1
-            else:
-                stats.failed += 1
+            stats._tally(status)
         return stats
 
     render_fn = partial(_render_job, dpi=dpi, force=force, failures_path=failures_path)
@@ -443,12 +472,7 @@ def render_corpus(
         for future in as_completed(futures):
             progress.update(1)
             status, _, _ = future.result()
-            if status == "rendered":
-                stats.rendered += 1
-            elif status == "skipped":
-                stats.skipped += 1
-            else:
-                stats.failed += 1
+            stats._tally(status)
     progress.close()
     return stats
 
