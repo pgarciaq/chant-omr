@@ -398,8 +398,14 @@ def audit_tokens(config, rendered_dir, top_n):
     "--repetition-penalty", type=float, default=1.1, show_default=True,
 )
 @click.option("--limit", type=int, default=None, help="Evaluate only first N pairs")
+@click.option(
+    "--test-split-only",
+    is_flag=True,
+    default=False,
+    help="Only evaluate test-split samples (catalog_id %% 20 == 0)",
+)
 def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
-             repetition_penalty, limit):
+             repetition_penalty, limit, test_split_only):
     """Evaluate model on benchmark (image, GABC) pairs (#14)."""
     from pathlib import Path
 
@@ -417,5 +423,6 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
         limit=limit,
+        test_split_only=test_split_only,
     )
     click.echo(format_eval_report(report))

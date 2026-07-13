@@ -18,6 +18,7 @@ from chant_omr.data.dataset import (
     catalog_id_from_render_stem,
     collate_chant_omr_batch,
     discover_rendered_pairs,
+    is_test_split,
     resize_score_image,
     split_samples_by_catalog_id,
 )
@@ -89,6 +90,58 @@ class TestDiscoverRenderedPairs:
         _write_fake_png(rendered_dir / "9999.png")
         pairs = discover_rendered_pairs(rendered_dir, min_body_len=10)
         assert all(p.stem != "9999" for p in pairs)
+
+
+class TestTestSplit:
+    def test_divisible_ids_are_test(self):
+        assert is_test_split(0)
+        assert is_test_split(20)
+        assert is_test_split(100)
+        assert is_test_split(9000)
+        assert is_test_split(9100)
+
+    def test_non_divisible_ids_are_train(self):
+        assert not is_test_split(1)
+        assert not is_test_split(19)
+        assert not is_test_split(9001)
+        assert not is_test_split(9999)
+
+    def test_custom_modulus(self):
+        assert is_test_split(10, modulus=10)
+        assert not is_test_split(10, modulus=11)
+
+    def test_build_datasets_excludes_test_split(self, tmp_path, tokenizer):
+        rendered = tmp_path / "rendered"
+        rendered.mkdir()
+        for stem_id in [100, 101, 102, 103, 104, 105]:
+            shutil.copy(RESPICE_GABC, rendered / f"{stem_id}.gabc")
+            _write_fake_png(rendered / f"{stem_id}.png")
+
+        train_ds, val_ds = build_datasets(
+            rendered, tokenizer, train_fraction=0.8, augment=False,
+            exclude_test_split=True,
+        )
+        all_ids = {s.catalog_id for s in train_ds.samples} | {
+            s.catalog_id for s in val_ds.samples
+        }
+        assert 100 not in all_ids
+        assert 101 in all_ids
+
+    def test_build_datasets_includes_test_when_disabled(self, tmp_path, tokenizer):
+        rendered = tmp_path / "rendered"
+        rendered.mkdir()
+        for stem_id in [100, 101, 102, 103, 104, 105]:
+            shutil.copy(RESPICE_GABC, rendered / f"{stem_id}.gabc")
+            _write_fake_png(rendered / f"{stem_id}.png")
+
+        train_ds, val_ds = build_datasets(
+            rendered, tokenizer, train_fraction=0.8, augment=False,
+            exclude_test_split=False,
+        )
+        all_ids = {s.catalog_id for s in train_ds.samples} | {
+            s.catalog_id for s in val_ds.samples
+        }
+        assert 100 in all_ids
 
 
 class TestResizeScoreImage:
@@ -222,6 +275,7 @@ class TestDataLoaderIntegration:
             train_fraction=0.6,
             split_seed=99,
             augment=False,
+            exclude_test_split=False,
         )
         train_loader, val_loader = build_dataloaders(
             train_ds,

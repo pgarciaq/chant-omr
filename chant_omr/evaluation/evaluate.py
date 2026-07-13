@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from chant_omr.data.dataset import catalog_id_from_render_stem, is_test_split
 from chant_omr.data.gabc_parser import extract_gabc_body
 from chant_omr.evaluation.metrics import (
     GEDResult,
@@ -72,11 +73,18 @@ class EvalReport:
 
 def discover_benchmark_pairs(
     benchmark_dir: Path,
+    *,
+    test_split_only: bool = False,
 ) -> list[tuple[Path, Path]]:
     """Find (image, gabc) pairs in ``benchmarks/{book}/page_NNN.{png,gabc}`` layout.
 
     Also supports flat directories (rendered corpus style) where
     ``*.png`` and ``*.gabc`` share the same stem.
+
+    When *test_split_only* is True, only pairs whose stem parses as a
+    GregoBase catalog ID in the test split (``catalog_id % 20 == 0``)
+    are returned.  Non-numeric stems (e.g. ``page_001``) are skipped
+    when this filter is active.
     """
     benchmark_dir = Path(benchmark_dir)
     pairs: list[tuple[Path, Path]] = []
@@ -85,6 +93,13 @@ def discover_benchmark_pairs(
         gabc_path = png_path.with_suffix(".gabc")
         if not gabc_path.is_file():
             continue
+        if test_split_only:
+            try:
+                cat_id = catalog_id_from_render_stem(png_path.stem)
+            except ValueError:
+                continue
+            if not is_test_split(cat_id):
+                continue
         pairs.append((png_path, gabc_path))
 
     return pairs
@@ -106,10 +121,13 @@ def evaluate_checkpoint(
     max_length: int = 2048,
     repetition_penalty: float = 1.1,
     limit: int | None = None,
+    test_split_only: bool = False,
 ) -> EvalReport:
     """Run evaluation on all benchmark pairs and return an ``EvalReport``.
 
-    Loads the model once, then runs inference on each pair.
+    Loads the model once, then runs inference on each pair.  When
+    *test_split_only* is True, only test-split rendered pairs are
+    evaluated (useful for ``data/rendered/`` automated eval).
     """
     import torch
 
@@ -118,7 +136,7 @@ def evaluate_checkpoint(
     from chant_omr.inference.predict import resolve_inference_device
     from chant_omr.inference.preprocess import prepare_inference_tensor
 
-    pairs = discover_benchmark_pairs(benchmark_dir)
+    pairs = discover_benchmark_pairs(benchmark_dir, test_split_only=test_split_only)
     if not pairs:
         return EvalReport()
 

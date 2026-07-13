@@ -448,6 +448,26 @@ truncated chants are unusually long pieces (full Mass Propers, sequences); they
 still contribute partial training signal. Revisit if full-train evaluation shows
 disproportionate errors on long scores.
 
+##### Test split policy ([#48](https://github.com/pgarciaq/chant-omr/issues/48))
+
+A deterministic ~5% test split is held out from training and validation:
+
+    is_test_split(catalog_id) = (catalog_id % 20 == 0)
+
+This predicate is **stable** — adding or removing files never moves an ID
+between splits (unlike RNG-shuffle splits).  All element variants of the
+same catalog ID (e.g. `12345`, `12345_elem1`) stay in the same partition.
+
+`build_datasets()` excludes test-split IDs by default.  To evaluate on the
+test split:
+
+```bash
+chant-omr evaluate CKPT --benchmark-dir data/rendered/ --test-split-only
+```
+
+The remaining ~95% is split into train (90%) and val (10%) by the existing
+`split_samples_by_catalog_id()` RNG shuffle (seed 42).
+
 #### Multi-variant training samples
 
 #5 downloads all unique variants per catalog `id` (dedupe by SHA256). #8 keeps

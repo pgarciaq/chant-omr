@@ -214,6 +214,23 @@ class TestDiscoverBenchmarkPairs:
         pairs = discover_benchmark_pairs(tmp_path)
         assert len(pairs) == 1
 
+    def test_test_split_only_filters(self, tmp_path):
+        for cat_id in [100, 101, 102, 200]:
+            (tmp_path / f"{cat_id}.png").write_bytes(b"PNG")
+            (tmp_path / f"{cat_id}.gabc").write_text(
+                "name:t;\n%%\n(c4) test(f)", encoding="utf-8",
+            )
+        all_pairs = discover_benchmark_pairs(tmp_path, test_split_only=False)
+        assert len(all_pairs) == 4
+        test_pairs = discover_benchmark_pairs(tmp_path, test_split_only=True)
+        test_stems = {p[0].stem for p in test_pairs}
+        assert test_stems == {"100", "200"}
+
+    def test_test_split_skips_non_numeric_stems(self, tmp_path):
+        (tmp_path / "page_001.png").write_bytes(b"PNG")
+        (tmp_path / "page_001.gabc").write_text("name:t;\n%%\n(c4) test(f)", encoding="utf-8")
+        pairs = discover_benchmark_pairs(tmp_path, test_split_only=True)
+        assert len(pairs) == 0
 
 
 # ---------------------------------------------------------------------------

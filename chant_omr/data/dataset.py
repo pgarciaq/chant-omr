@@ -31,6 +31,7 @@ DEFAULT_TARGET_WIDTH = 1050
 DEFAULT_MAX_HEIGHT = 1600
 DEFAULT_TRAIN_SPLIT = 0.9
 DEFAULT_SPLIT_SEED = 42
+TEST_SPLIT_MODULUS = 20
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,16 @@ def catalog_id_from_render_stem(stem: str) -> int:
     """Parse GregoBase catalog id from ``{id}`` or ``{id}_elem{N}`` rendered stem."""
     base = stem.split("_elem", 1)[0]
     return int(base)
+
+
+def is_test_split(catalog_id: int, *, modulus: int = TEST_SPLIT_MODULUS) -> bool:
+    """Return True if *catalog_id* belongs to the held-out test split.
+
+    Uses a simple ``catalog_id % modulus == 0`` predicate — stable regardless
+    of which files exist on disk (unlike RNG-shuffle splits).  With the
+    default modulus of 20 this holds out ~5% of catalog IDs.
+    """
+    return catalog_id % modulus == 0
 
 
 def discover_rendered_pairs(
@@ -283,9 +294,18 @@ def build_datasets(
     max_height: int = DEFAULT_MAX_HEIGHT,
     min_body_len: int = DEFAULT_MIN_BODY_LEN,
     overfit_n: int | None = None,
+    exclude_test_split: bool = True,
 ) -> tuple[ChantOMRDataset, ChantOMRDataset]:
-    """Discover pairs and return train/val datasets split by catalog id."""
+    """Discover pairs and return train/val datasets split by catalog id.
+
+    When *exclude_test_split* is True (the default), samples whose catalog ID
+    belongs to the test split (``catalog_id % 20 == 0``) are removed before
+    the train/val split.  This ensures the test set is never seen during
+    training or validation.
+    """
     samples = discover_rendered_pairs(rendered_dir, min_body_len=min_body_len)
+    if exclude_test_split:
+        samples = [s for s in samples if not is_test_split(s.catalog_id)]
     if not samples:
         raise ValueError(f"no rendered training pairs found under {rendered_dir}")
     train_samples, val_samples = split_samples_by_catalog_id(
