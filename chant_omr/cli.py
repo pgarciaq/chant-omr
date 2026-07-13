@@ -73,6 +73,12 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 )
 @click.option("--name", type=str, default=None, help="GABC name: header (default: OMR output)")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output GABC file path")
+@click.option(
+    "--dump-metrics",
+    is_flag=True,
+    default=False,
+    help="Print teacher-forcing vs greedy diagnostics (uses sidecar .gabc when present)",
+)
 def predict(
     image_path,
     checkpoint_path,
@@ -84,6 +90,7 @@ def predict(
     repetition_penalty,
     name,
     output,
+    dump_metrics,
 ):
     """Run OMR on a single image and output GABC."""
     from pathlib import Path
@@ -111,6 +118,7 @@ def predict(
             else infer_cfg.get("repetition_penalty", 1.1)
         ),
         name=name,
+        dump_metrics=dump_metrics,
     )
     if output:
         out_path = Path(output)

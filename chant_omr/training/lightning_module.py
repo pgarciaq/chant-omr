@@ -11,9 +11,11 @@ from lightning.pytorch import LightningModule
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader
 
-from chant_omr.data.dataset import build_dataloaders, build_datasets, load_config
+from chant_omr.data.dataset import build_dataloaders, build_datasets
+from chant_omr.inference.checkpoint import load_config, load_model_weights_into_module
 from chant_omr.model.chant_omr_model import ChantOMR, ChantOMRConfig, build_model
 from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
+from chant_omr.training.scheduled_sampling import build_scheduled_decoder_input
 from chant_omr.training.xpu_strategy import SingleXPUStrategy, xpu_is_available
 
 
@@ -29,6 +31,7 @@ class ChantOMRLightningModule(LightningModule):
         weight_decay: float = 0.05,
         warmup_fraction: float = 0.05,
         gradient_clip: float = 1.0,
+        scheduled_sampling_prob: float = 0.0,
     ):
         super().__init__()
         self.model = model
@@ -37,6 +40,7 @@ class ChantOMRLightningModule(LightningModule):
         self.weight_decay = weight_decay
         self.warmup_fraction = warmup_fraction
         self.gradient_clip = gradient_clip
+        self.scheduled_sampling_prob = scheduled_sampling_prob
         self.save_hyperparameters(ignore=["model"])
 
     def forward(
@@ -54,7 +58,12 @@ class ChantOMRLightningModule(LightningModule):
             encoder_attention_mask=encoder_attention_mask,
         )
 
-    def _compute_loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def _compute_loss(
+        self,
+        batch: dict[str, torch.Tensor],
+        *,
+        use_scheduled_sampling: bool | None = None,
+    ) -> torch.Tensor:
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         encoder_attention_mask = batch.get("encoder_attention_mask")
@@ -62,9 +71,30 @@ class ChantOMRLightningModule(LightningModule):
         if input_ids.shape[1] < 2:
             raise ValueError("input_ids must contain at least two tokens for teacher forcing")
 
-        decoder_input = input_ids[:, :-1]
+        gold_decoder_input = input_ids[:, :-1]
         labels = input_ids[:, 1:]
         decoder_mask = attention_mask[:, :-1]
+
+        should_sample = (
+            use_scheduled_sampling
+            if use_scheduled_sampling is not None
+            else self.training and self.scheduled_sampling_prob > 0
+        )
+        decoder_input = gold_decoder_input
+        if should_sample:
+            with torch.no_grad():
+                teacher_logits = self.model(
+                    batch["pixel_values"],
+                    gold_decoder_input,
+                    attention_mask=decoder_mask,
+                    encoder_attention_mask=encoder_attention_mask,
+                )
+            decoder_input = build_scheduled_decoder_input(
+                gold_decoder_input,
+                teacher_logits,
+                attention_mask=decoder_mask,
+                sampling_prob=self.scheduled_sampling_prob,
+            )
 
         logits = self.model(
             batch["pixel_values"],
@@ -225,6 +255,7 @@ def build_training_module(
         weight_decay=float(training_cfg.get("weight_decay", 0.05)),
         warmup_fraction=float(training_cfg.get("warmup_fraction", 0.05)),
         gradient_clip=float(training_cfg.get("gradient_clip", 1.0)),
+        scheduled_sampling_prob=float(training_cfg.get("scheduled_sampling_prob", 0.0)),
     )
 
 
@@ -268,6 +299,7 @@ def run_training(
     config_path: Path,
     *,
     resume: Path | None = None,
+    finetune: bool = False,
     gpus: int = 1,
     accelerator: str = "auto",
     xpu_index: int = 0,
@@ -355,9 +387,15 @@ def run_training(
     print(device_msg)
 
     trainer = Trainer(**trainer_kwargs)
+    if finetune and resume is None:
+        raise ValueError("--finetune requires --resume CHECKPOINT")
+    ckpt_path: str | None = str(resume) if resume else None
+    if finetune and resume is not None:
+        load_model_weights_into_module(module.model, resume)
+        ckpt_path = None
     trainer.fit(
         module,
         train_dataloaders=train_loader,
         val_dataloaders=val_loader,
-        ckpt_path=str(resume) if resume else None,
+        ckpt_path=ckpt_path,
     )

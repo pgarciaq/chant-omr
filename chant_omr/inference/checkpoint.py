@@ -28,6 +28,15 @@ def _strip_lightning_prefix(state_dict: dict[str, torch.Tensor]) -> dict[str, to
     return model_state
 
 
+def load_model_weights_into_module(module: torch.nn.Module, checkpoint_path: Path) -> None:
+    """Load only ``model.*`` weights from a Lightning checkpoint into *module*."""
+    checkpoint_path = Path(checkpoint_path)
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if not isinstance(ckpt, dict) or "state_dict" not in ckpt:
+        raise ValueError(f"not a Lightning checkpoint: {checkpoint_path}")
+    module.load_state_dict(_strip_lightning_prefix(ckpt["state_dict"]), strict=True)
+
+
 def load_model_from_checkpoint(
     checkpoint_path: Path,
     *,

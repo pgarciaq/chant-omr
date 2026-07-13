@@ -13,6 +13,12 @@ from chant_omr.data.gabc_parser import parse_gabc, plain_gabc_reject_reason
 from chant_omr.inference.beam_search import DecodeConfig, decode_token_ids, greedy_decode
 from chant_omr.inference.checkpoint import load_model_from_checkpoint
 from chant_omr.inference.gabc_output import assemble_gabc
+from chant_omr.inference.metrics import (
+    PredictMetrics,
+    compute_predict_metrics,
+    format_predict_metrics,
+    resolve_reference_gabc,
+)
 from chant_omr.inference.predict import predict_gabc, resolve_inference_device
 from chant_omr.model.chant_omr_model import build_model
 from chant_omr.model.tokenizer import train_tokenizer
@@ -158,3 +164,88 @@ class TestPredictGabc:
         monkeypatch.setattr("chant_omr.inference.predict.torch.cuda.is_available", lambda: False)
         monkeypatch.setattr("chant_omr.inference.predict.xpu_is_available", lambda: False)
         assert resolve_inference_device("auto").type == "cpu"
+
+
+class TestPredictMetrics:
+    def test_resolve_reference_gabc_sidecar(self, tiny_png: Path):
+        sidecar = tiny_png.with_suffix(".gabc")
+        assert resolve_reference_gabc(tiny_png) is None
+        sidecar.write_text("name:;\n%%\n(c4) test\n", encoding="utf-8")
+        assert resolve_reference_gabc(tiny_png) == sidecar
+
+    def test_format_predict_metrics_with_gold(self, tmp_path: Path):
+        gold = tmp_path / "score.gabc"
+        text = format_predict_metrics(
+            PredictMetrics(
+                encoder_patches=352,
+                memory_l2_norm=71.4,
+                greedy_preview="(c3) preview...",
+                gold_path=gold,
+                teacher_forcing_loss=0.0358,
+                teacher_forcing_acc=1.0,
+                greedy_body_match=False,
+                greedy_token_acc=0.12,
+            )
+        )
+        assert "teacher_forcing:" in text
+        assert "loss: 0.0358" in text
+        assert "acc:  100.0%" in text
+        assert "exact_body_match: no" in text
+        assert "token_acc_vs_gold: 12.0%" in text
+
+    def test_compute_predict_metrics_smoke(self, tokenizer, tiny_png: Path):
+        model = build_model(encoder_pretrained=False)
+        model.eval()
+        pixels = torch.randn(1, 3, 120, 420)
+        sidecar = tiny_png.with_suffix(".gabc")
+        sidecar.write_text(
+            "name:;\n%%\n(c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f)\n",
+            encoding="utf-8",
+        )
+        _, metrics = compute_predict_metrics(
+            model,
+            pixels,
+            tokenizer,
+            decode_config=DecodeConfig(beam_width=1, max_length=24, repetition_penalty=1.0),
+            reference_gabc_path=sidecar,
+        )
+        assert metrics.encoder_patches > 0
+        assert metrics.teacher_forcing_loss is not None
+        assert metrics.greedy_token_acc is not None
+
+    def test_predict_dump_metrics(
+        self,
+        checkpoint_path,
+        config_paths,
+        tiny_png,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tokenizer,
+    ):
+        cfg_path, _ = config_paths
+        sidecar = tiny_png.with_suffix(".gabc")
+        sidecar.write_text(
+            "name:;\n%%\n(c4) Ky(f)ri(gf)e(h) *() e(ixhi)lé(h)i(g)son.(f)\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "chant_omr.inference.predict.format_training_device_message",
+            lambda **kwargs: "",
+        )
+        monkeypatch.setattr(
+            "chant_omr.inference.predict.decode_token_ids",
+            lambda *args, **kwargs: [tokenizer.bos_id, 10, tokenizer.eos_id],
+        )
+        predict_gabc(
+            tiny_png,
+            checkpoint_path,
+            config_path=cfg_path,
+            device="cpu",
+            beam_width=1,
+            max_length=16,
+            repetition_penalty=1.0,
+            dump_metrics=True,
+        )
+        captured = capsys.readouterr()
+        assert "--- predict metrics ---" in captured.out
+        assert "teacher_forcing:" in captured.out

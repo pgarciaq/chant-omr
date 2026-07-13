@@ -1,0 +1,40 @@
+# Overfit gate — optimize for greedy decode, not just teacher-forcing val_loss
+
+data:
+  rendered_dir: data/rendered/
+  tokenizer_dir: data/tokenizer/
+  train_split: 0.9
+  target_width: 1050
+  max_height: 1600
+  augment: false
+  num_workers: 0
+
+model:
+  encoder_variant: convnextv2_tiny
+  encoder_pretrained: false
+  projector_hidden: 768
+  d_model: 512
+  n_layers: 8
+  n_heads: 8
+  d_ff: 1024
+  dropout: 0.0
+  max_seq_len: 2048
+  vocab_size: 2048
+
+training:
+  epochs: 200
+  batch_size: 2
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
+  warmup_fraction: 0.01
+  gradient_clip: 1.0
+  scheduled_sampling_prob: 0.3
+  precision: bf16-mixed
+  checkpoint_dir: checkpoints-sampling/
+  save_top_k: 3
+  monitor: val_loss
+
+inference:
+  beam_width: 1
+  repetition_penalty: 1.0
+  max_length: 2048

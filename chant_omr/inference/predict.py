@@ -9,6 +9,11 @@ import torch
 from chant_omr.inference.beam_search import DecodeConfig, decode_token_ids
 from chant_omr.inference.checkpoint import load_model_from_checkpoint
 from chant_omr.inference.gabc_output import assemble_gabc
+from chant_omr.inference.metrics import (
+    compute_predict_metrics,
+    format_predict_metrics,
+    resolve_reference_gabc,
+)
 from chant_omr.inference.preprocess import prepare_inference_tensor
 from chant_omr.training.lightning_module import format_training_device_message
 from chant_omr.training.xpu_strategy import xpu_is_available
@@ -55,6 +60,8 @@ def predict_gabc(
     max_length: int = 2048,
     repetition_penalty: float = 1.1,
     name: str | None = None,
+    dump_metrics: bool = False,
+    reference_gabc_path: Path | None = None,
 ) -> str:
     """Run OMR on a single image and return a full GABC file string."""
     torch_device = resolve_inference_device(device, xpu_index=xpu_index)
@@ -73,15 +80,28 @@ def predict_gabc(
         device=torch_device,
     )
     pixel_values = prepare_inference_tensor(image_path, device=torch_device)
+    decode_config = DecodeConfig(
+        beam_width=beam_width,
+        max_length=max_length,
+        repetition_penalty=repetition_penalty,
+    )
+    ref_gabc = reference_gabc_path
+    if dump_metrics and ref_gabc is None:
+        ref_gabc = resolve_reference_gabc(image_path)
+    if dump_metrics:
+        _, metrics = compute_predict_metrics(
+            model,
+            pixel_values,
+            tokenizer,
+            decode_config=decode_config,
+            reference_gabc_path=ref_gabc,
+        )
+        print(format_predict_metrics(metrics))
     token_ids = decode_token_ids(
         model,
         pixel_values,
         tokenizer,
-        DecodeConfig(
-            beam_width=beam_width,
-            max_length=max_length,
-            repetition_penalty=repetition_penalty,
-        ),
+        decode_config,
     )
     body = tokenizer.decode(token_ids, skip_special_tokens=True)
     return assemble_gabc(body, name=name or "OMR output")

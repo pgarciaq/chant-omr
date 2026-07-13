@@ -36,6 +36,12 @@ from chant_omr.training.lightning_module import run_training
     default=None,
     help="Override config encoder_pretrained",
 )
+@click.option(
+    "--finetune",
+    is_flag=True,
+    default=False,
+    help="Load --resume weights only (fresh optimizer/epochs; use for LR changes)",
+)
 def main(
     config: str,
     resume: str | None,
@@ -47,6 +53,7 @@ def main(
     epochs: int | None,
     overfit_n: int | None,
     encoder_pretrained: bool | None,
+    finetune: bool,
 ) -> None:
     """Train the ChantOMR model."""
     run_training(
@@ -60,6 +67,7 @@ def main(
         epochs=epochs,
         overfit_n=overfit_n,
         encoder_pretrained=encoder_pretrained,
+        finetune=finetune,
     )
 
 
