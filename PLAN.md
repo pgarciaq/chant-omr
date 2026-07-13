@@ -72,7 +72,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 3.1 | Lightning training | #12 | **Done** | lightning |
 | 3.1b | Intel Arc XPU training | #38 | **Done** | device |
 | 4.1 | Inference + export | #13 | **Done** (13a + 13b) | inference, export |
-| 4.2 | Benchmark evaluation | #14 | Pending | — |
+| 4.2 | Benchmark evaluation | #14 | **Done** | evaluate |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
 
 **Epic 5 (NABC, deferred):** [#22](https://github.com/pgarciaq/chant-omr/issues/22) ·
@@ -685,21 +685,38 @@ Acceptable for v0 typical scores (~200-400 tokens).
 
 ### 4.2 Benchmark Evaluation
 
-Manual pairs in `benchmarks/{book}/page_NNN.{png,gabc}` — ghh-processed pages,
-never used for training. See [benchmarks/README.md](benchmarks/README.md).
+`chant-omr evaluate CHECKPOINT --benchmark-dir DIR` runs inference on all
+(image, GABC) pairs found in the directory and reports aggregate metrics.
 
-| Metric | Description | Target |
-|--------|-------------|--------|
-| GABC Edit Distance | Normalized Levenshtein on GABC | < 30% real scans |
-| Neume accuracy | Accuracy on `(...)` groups only | > 80% |
-| Structural validity | % valid parseable GABC | > 95% |
+**Data sources** (both use the same metrics):
+
+1. `benchmarks/{book}/page_NNN.{png,gabc}` — manually transcribed real scans
+   (gold standard). See [benchmarks/README.md](benchmarks/README.md).
+2. `data/rendered/*.{png,gabc}` — held-out synthetic pairs (automated,
+   needs deterministic test split [#48](https://github.com/pgarciaq/chant-omr/issues/48)).
+
+| Metric | Function | Description | Target |
+|--------|----------|-------------|--------|
+| GABC Edit Distance | `gabc_edit_distance()` | Symmetric Levenshtein, `max(len(pred), len(ref))` denominator | < 30% real scans |
+| Neume accuracy | `neume_accuracy()` | Sequence-level edit distance on `(...)` groups | > 80% |
+| Structural validity | `check_structural_validity()` | Balanced parens + clef declaration | > 95% |
 
 **Neume** = "group of notes sung on the same syllable"
 ([Gregorio structure](https://gregorio-project.github.io/structure.html)).
 
+**Known limitations (v0):**
+
+- Neume accuracy uses raw string comparison — valid-but-different GABC
+  encodings count as errors ([#47](https://github.com/pgarciaq/chant-omr/issues/47)).
+- Structural validity is regex-based, not Gregorio compilation
+  ([#46](https://github.com/pgarciaq/chant-omr/issues/46)).
+
 **Stretch goals:**
 
-- **Encoding equivalence**: tolerate alternate GABC for same visual
+- **Encoding equivalence** ([#47](https://github.com/pgarciaq/chant-omr/issues/47)):
+  tolerate alternate GABC for same visual
+- **Gregorio compilation check** ([#46](https://github.com/pgarciaq/chant-omr/issues/46)):
+  run `gregorio` on output for definitive structural validation
 - **Syllable alignment**: per [graphy.html](https://gregorio-project.github.io/graphy.html)
   vowel-centering rules (iota, digamma, diphthongs)
 

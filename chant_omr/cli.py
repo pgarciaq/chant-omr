@@ -378,9 +378,44 @@ def audit_tokens(config, rendered_dir, top_n):
 
 
 @main.command()
-@click.argument("model_path", type=click.Path(exists=True))
-@click.option("--test-dir", type=click.Path(exists=True), default="benchmarks/")
-@click.option("--beam-width", type=int, default=3)
-def evaluate(model_path, test_dir, beam_width):
-    """Evaluate model on benchmark data."""
-    click.echo(f"Evaluating {model_path} on {test_dir}")
+@click.argument("checkpoint", type=click.Path(exists=True))
+@click.option(
+    "--benchmark-dir",
+    type=click.Path(exists=True),
+    default="benchmarks/",
+    help="Directory with (image, gabc) pairs — benchmarks/ or rendered test split",
+)
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "xpu", "cpu"]),
+    default="auto",
+    show_default=True,
+)
+@click.option("--beam-width", type=int, default=3, show_default=True)
+@click.option("--max-length", type=int, default=2048, show_default=True)
+@click.option(
+    "--repetition-penalty", type=float, default=1.1, show_default=True,
+)
+@click.option("--limit", type=int, default=None, help="Evaluate only first N pairs")
+def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
+             repetition_penalty, limit):
+    """Evaluate model on benchmark (image, GABC) pairs (#14)."""
+    from pathlib import Path
+
+    from chant_omr.evaluation.evaluate import (
+        evaluate_checkpoint,
+        format_eval_report,
+    )
+
+    report = evaluate_checkpoint(
+        Path(checkpoint),
+        Path(benchmark_dir),
+        config_path=Path(config),
+        device=device,
+        beam_width=beam_width,
+        max_length=max_length,
+        repetition_penalty=repetition_penalty,
+        limit=limit,
+    )
+    click.echo(format_eval_report(report))
