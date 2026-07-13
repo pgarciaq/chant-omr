@@ -313,6 +313,39 @@ def train_tokenizer_cmd(gabc_dir, output_dir, vocab_size, config, min_body_len, 
     click.echo(f"Artifacts: {Path(output_dir).resolve()}")
 
 
+@main.command("audit-tokens")
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
+@click.option("--rendered-dir", type=click.Path(exists=True), default=None)
+@click.option("--top-n", type=int, default=10, show_default=True, help="Show N longest samples")
+def audit_tokens(config, rendered_dir, top_n):
+    """Report token-length distribution over the rendered corpus (#33)."""
+    from pathlib import Path
+
+    import yaml
+
+    from chant_omr.data.token_audit import audit_token_lengths, format_token_audit
+    from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
+
+    cfg_path = Path(config)
+    with cfg_path.open(encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh) or {}
+    data_cfg = cfg.get("data", {})
+    model_cfg = cfg.get("model", {})
+
+    tok_dir = Path(data_cfg.get("tokenizer_dir", "data/tokenizer/"))
+    tokenizer = GABCTokenizer.load(tok_dir / TOKENIZER_FILENAME)
+    rdir = Path(rendered_dir or data_cfg.get("rendered_dir", "data/rendered/"))
+    max_seq_len = int(model_cfg.get("max_seq_len", 2048))
+
+    report = audit_token_lengths(
+        rdir,
+        tokenizer,
+        max_seq_len=max_seq_len,
+        top_n=top_n,
+    )
+    click.echo(format_token_audit(report))
+
+
 @main.command()
 @click.argument("model_path", type=click.Path(exists=True))
 @click.option("--test-dir", type=click.Path(exists=True), default="benchmarks/")

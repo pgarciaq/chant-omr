@@ -424,6 +424,30 @@ GABC labels are **variable-length** token sequences. Each `__getitem__` returns:
 padding positions. Teacher-forcing shift (predict-next-token) is **#12** Lightning
 module, not the dataset.
 
+##### Token length distribution and truncation policy ([#33](https://github.com/pgarciaq/chant-omr/issues/33))
+
+`chant-omr audit-tokens` scans the rendered corpus and reports BPE token lengths
+(including `<bos>`/`<eos>`). Audit on the full 20k corpus with `vocab_size=2048`:
+
+| Stat | Tokens |
+|------|--------|
+| p50 | 216 |
+| p75 | 406 |
+| p90 | 730 |
+| p95 | 969 |
+| p99 | 1691 |
+| max | 7683 |
+| mean | 338.5 |
+
+**106 samples (0.53%)** exceed `max_seq_len=2048` and are silently truncated by
+`collate_fn`. The longest is 7683 tokens (catalog 20499).
+
+**Policy:** keep `max_seq_len=2048` for v0 — it covers 99.47% of the corpus.
+Raising it to 4096 would cover 99.9% but doubles decoder memory. The 106
+truncated chants are unusually long pieces (full Mass Propers, sequences); they
+still contribute partial training signal. Revisit if full-train evaluation shows
+disproportionate errors on long scores.
+
 #### Multi-variant training samples
 
 #5 downloads all unique variants per catalog `id` (dedupe by SHA256). #8 keeps
