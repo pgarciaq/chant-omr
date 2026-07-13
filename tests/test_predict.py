@@ -140,20 +140,26 @@ class TestPredictGabc:
         tiny_png,
         monkeypatch: pytest.MonkeyPatch,
     ):
+        """Pipeline plumbing test: random-weight model may produce valid GABC
+        or raise ValueError for empty body — both are correct (#45)."""
         cfg_path, _ = config_paths
         monkeypatch.setattr(
             "chant_omr.inference.predict.format_training_device_message",
             lambda **kwargs: "",
         )
-        text = predict_gabc(
-            tiny_png,
-            checkpoint_path,
-            config_path=cfg_path,
-            device="cpu",
-            beam_width=1,
-            max_length=16,
-            repetition_penalty=1.0,
-        )
+        try:
+            text = predict_gabc(
+                tiny_png,
+                checkpoint_path,
+                config_path=cfg_path,
+                device="cpu",
+                beam_width=1,
+                max_length=16,
+                repetition_penalty=1.0,
+            )
+        except ValueError as exc:
+            assert "decoded GABC body is empty" in str(exc)
+            return
         assert "%%" in text
         parse_gabc(text)
 
