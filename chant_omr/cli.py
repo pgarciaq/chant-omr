@@ -302,6 +302,28 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
         )
 
 
+@main.command()
+@click.option("--rendered-dir", type=click.Path(exists=True), default="data/rendered/")
+@click.option("--dry-run/--no-dry-run", default=True, show_default=True,
+              help="List orphans without deleting (default). Use --no-dry-run to delete.")
+def cleanup(rendered_dir, dry_run):
+    """Remove orphan files from the rendered directory."""
+    from pathlib import Path
+
+    from chant_omr.data.renderer import cleanup_rendered_dir
+
+    stats = cleanup_rendered_dir(Path(rendered_dir), dry_run=dry_run)
+    mode = "DRY RUN" if dry_run else "DELETED"
+    click.echo(f"Orphan .gabc (no matching .png): {stats.orphan_gabc_deleted} [{mode}]")
+    if stats.png_only_orphans:
+        click.echo(
+            f"PNG-only orphans (no .gabc sidecar): {stats.png_only_orphans} "
+            f"[use --force re-render to backfill]"
+        )
+    if dry_run and stats.orphan_gabc_deleted:
+        click.echo("Re-run with --no-dry-run to delete orphan .gabc files.")
+
+
 @main.command("train-tokenizer")
 @click.option("--gabc-dir", type=click.Path(exists=True), default="data/gregobase/")
 @click.option("--output-dir", type=click.Path(), default="data/tokenizer/")

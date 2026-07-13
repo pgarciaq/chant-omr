@@ -248,6 +248,48 @@ class TestRenderCorpusMocked:
         assert rec["category"] == "missing"
 
 
+class TestCleanup:
+    def _populate(self, d: Path) -> None:
+        """Create a mix of paired, orphan gabc, and orphan png files."""
+        (d / "10000.gabc").write_text("name:t;\n%%\n(c4) a(f)", encoding="utf-8")
+        (d / "10000.png").write_bytes(b"PNG")
+        (d / "--slug--.gabc").write_text("name:t;\n%%\n(c4) b(f)", encoding="utf-8")
+        (d / "10001.png").write_bytes(b"PNG")
+
+    def test_find_orphan_gabc(self, tmp_path: Path):
+        self._populate(tmp_path)
+        orphans = rd.find_orphan_gabc(tmp_path)
+        assert len(orphans) == 1
+        assert orphans[0].name == "--slug--.gabc"
+
+    def test_find_png_only_orphans(self, tmp_path: Path):
+        self._populate(tmp_path)
+        orphans = rd.find_png_only_orphans(tmp_path)
+        assert len(orphans) == 1
+        assert orphans[0].name == "10001.png"
+
+    def test_cleanup_dry_run(self, tmp_path: Path):
+        self._populate(tmp_path)
+        stats = rd.cleanup_rendered_dir(tmp_path, dry_run=True)
+        assert stats.orphan_gabc_deleted == 1
+        assert stats.png_only_orphans == 1
+        assert (tmp_path / "--slug--.gabc").exists()
+
+    def test_cleanup_delete(self, tmp_path: Path):
+        self._populate(tmp_path)
+        stats = rd.cleanup_rendered_dir(tmp_path, dry_run=False)
+        assert stats.orphan_gabc_deleted == 1
+        assert not (tmp_path / "--slug--.gabc").exists()
+        assert (tmp_path / "10000.gabc").exists()
+        assert (tmp_path / "10000.png").exists()
+
+    def test_is_id_based_stem(self):
+        assert rd._is_id_based_stem("10000")
+        assert rd._is_id_based_stem("500_elem1")
+        assert not rd._is_id_based_stem("--slug--")
+        assert not rd._is_id_based_stem("a_progenie")
+
+
 @pytest.mark.skipif(not rd.toolchain_available(), reason="Gregorio toolchain not installed")
 class TestRenderIntegration:
     def test_render_fixture_gabc(self, tmp_path: Path):

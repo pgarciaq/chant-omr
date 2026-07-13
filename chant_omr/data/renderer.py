@@ -488,3 +488,60 @@ def render_batch(
     if stats.failed:
         logger.warning("render_batch finished with %s failures", stats.failed)
     return sorted(output_dir.glob("*.png"))
+
+
+# ---------------------------------------------------------------------------
+# Cleanup helpers (#29)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CleanupStats:
+    """Summary of a cleanup pass on a rendered directory."""
+
+    orphan_gabc_deleted: int = 0
+    png_only_orphans: int = 0
+
+
+def _is_id_based_stem(stem: str) -> bool:
+    """Return True if *stem* looks like an id-based name (``12345`` or ``12345_elem1``)."""
+    parts = stem.split("_elem", 1)
+    return parts[0].isdigit()
+
+
+def find_orphan_gabc(rendered_dir: Path) -> list[Path]:
+    """Return ``.gabc`` files in *rendered_dir* with no matching ``.png``."""
+    orphans: list[Path] = []
+    for gabc in sorted(rendered_dir.glob("*.gabc")):
+        png = gabc.with_suffix(".png")
+        if not png.exists():
+            orphans.append(gabc)
+    return orphans
+
+
+def find_png_only_orphans(rendered_dir: Path) -> list[Path]:
+    """Return id-based ``.png`` files with no matching ``.gabc`` sidecar."""
+    orphans: list[Path] = []
+    for png in sorted(rendered_dir.glob("*.png")):
+        if not _is_id_based_stem(png.stem):
+            continue
+        gabc = png.with_suffix(".gabc")
+        if not gabc.exists():
+            orphans.append(png)
+    return orphans
+
+
+def cleanup_rendered_dir(
+    rendered_dir: Path,
+    *,
+    dry_run: bool = True,
+) -> CleanupStats:
+    """Delete orphan ``.gabc`` files and report PNG-only orphans."""
+    stats = CleanupStats()
+    orphan_gabcs = find_orphan_gabc(rendered_dir)
+    for gabc in orphan_gabcs:
+        if not dry_run:
+            gabc.unlink()
+        stats.orphan_gabc_deleted += 1
+
+    stats.png_only_orphans = len(find_png_only_orphans(rendered_dir))
+    return stats

@@ -65,7 +65,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 1.4 | Dataset (Phase A) | #8 | **Done** | dataset |
 | 1.2e | Render batch reporting + skip counters | #27 | **Done** | renderer |
 | 1.4b | Domain augmentation (Phase B) | #30 | Pending | — |
-| 1.2f | Rendered-dir orphan cleanup | #29 | Pending | — |
+| 1.2f | Rendered-dir orphan cleanup | #29 | **Done** | renderer |
 | 2.1 | ConvNeXt-V2 encoder | #9 | **Done** | encoder |
 | 2.2 | Transformer decoder | #10 | **Done** | decoder |
 | 2.3 | Model assembly | #11 | **Done** | model |
@@ -379,8 +379,11 @@ split. Augmentation toggle wired but **off by default** until #30 ships.
 
 **Pair discovery (PNG-first):** index `data/rendered/*.png`; require same-stem
 `.gabc`. Apply `plain_gabc_reject_reason()` on the sidecar. Skip unpaired files.
-Legacy slug `.gabc` orphans (no PNG) are ignored by the dataset; optional cleanup
-in [#29](https://github.com/pgarciaq/chant-omr/issues/29).
+Legacy slug `.gabc` orphans (no PNG) were cleaned up in
+[#29](https://github.com/pgarciaq/chant-omr/issues/29) (149 files deleted).
+149 PNG-only orphans (`.png` without `.gabc` sidecar) remain from older partial
+render runs; these are excluded by the dataset and will be backfilled on the
+next `--force` re-render pass.
 
 **Labels:** read GABC body from the rendered sidecar via `extract_gabc_body()`
 (the text Gregorio actually typeset for that PNG).
@@ -965,6 +968,7 @@ in CI — mock HTTP for #5, dummy tensors for model tests. Fixtures in
 | 1.2 | #6 | `test_renderer.py` | Skip if no Gregorio; fixture GABC smoke | Batch render 50 plain GABC |
 | 1.2d | #31 | `test_renderer.py` | `resolve_render_workers`, parallel corpus | Bulk render with auto workers |
 | 1.2e | #27 | `test_renderer.py` | `TestRenderStats` (tally, success_rate, categories) | CLI output with % and breakdown |
+| 1.2f | #29 | `test_renderer.py` | `TestCleanup` (orphan detection, dry-run, delete) | `chant-omr cleanup --no-dry-run` on rendered dir |
 | 1.3 | #7 | `test_tokenizer.py` | Round-trip, vocab size | Train on corpus subset |
 | 1.4 | #8 | `test_dataset.py` | Shapes, split, multi-variant, collate | DataLoader batch |
 | 2.1 | #9 | `test_encoder.py` | Output tensor shapes | — |
