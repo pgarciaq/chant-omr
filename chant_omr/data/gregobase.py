@@ -4,6 +4,9 @@ GregoBase (https://gregobase.selapa.net/) hosts ~20k Gregorian chant
 transcriptions in GABC format. This module fetches the official catalog
 (``csv.php``), downloads GABC via ``download.php`` with ``elem`` variant
 handling, and tracks state in a local manifest.
+
+Also provides :func:`rebuild_manifest` (#16) — a disaster-recovery path to
+reconstruct ``manifest.json`` from existing ``.gabc`` files on disk.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -648,3 +652,232 @@ def download_corpus(
         failed_ids=failed_ids,
         paths=paths,
     )
+
+
+# ---------------------------------------------------------------------------
+# Manifest rebuild from disk (#16)
+# ---------------------------------------------------------------------------
+
+ID_FILENAME_RE = re.compile(r"^(\d+)\.gabc$")
+ID_ELEM_FILENAME_RE = re.compile(r"^(\d+)_elem(\d+)\.gabc$")
+SLUG_FILENAME_RE = re.compile(r"^[a-z]{2}--.*\.gabc$")
+REBUILD_UNMATCHED_FILE = "rebuild-unmatched.txt"
+
+
+def normalize_incipit(text: str) -> str:
+    """Normalize an incipit for fuzzy matching.
+
+    Strips accents, lowercases, collapses whitespace, and removes punctuation.
+    """
+    nfkd = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    lowered = stripped.lower()
+    no_punct = re.sub(r"[^\w\s]", "", lowered)
+    return re.sub(r"\s+", " ", no_punct).strip()
+
+
+def normalize_office_part(text: str) -> str:
+    """Normalize an office-part string for fuzzy matching."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    lowered = stripped.lower()
+    no_punct = re.sub(r"[^\w\s]", "", lowered)
+    return re.sub(r"\s+", " ", no_punct).strip()
+
+
+def _slug_from_filename(filename: str) -> str:
+    """Extract the slug portion from a GregoBase slug-style filename.
+
+    E.g. ``"in--respice_domine--dominican.gabc"`` → ``"in--respice_domine--dominican"``.
+    """
+    return filename.removesuffix(".gabc")
+
+
+@dataclass
+class RebuildStats:
+    """Summary returned by :func:`rebuild_manifest`."""
+
+    total_files: int = 0
+    matched: int = 0
+    skipped: int = 0
+    ambiguous: int = 0
+    invalid: int = 0
+    no_match: int = 0
+
+
+def _build_catalog_indexes(
+    catalog: list[CatalogEntry],
+) -> tuple[
+    dict[tuple[str, str], list[CatalogEntry]],
+    dict[str, list[CatalogEntry]],
+]:
+    """Build lookup indexes from the GregoBase catalog.
+
+    Returns:
+        header_index: ``(norm_office_part, norm_incipit) → [entries]``
+        slug_index: ``slug → [entries]`` (from Content-Disposition-style filenames)
+    """
+    header_index: dict[tuple[str, str], list[CatalogEntry]] = {}
+    for entry in catalog:
+        key = (normalize_office_part(entry.office_part), normalize_incipit(entry.incipit))
+        if key == ("", ""):
+            continue
+        header_index.setdefault(key, []).append(entry)
+
+    slug_index: dict[str, list[CatalogEntry]] = {}
+    for entry in catalog:
+        parts = []
+        if entry.office_part:
+            abbrev = entry.office_part[:2].lower()
+            parts.append(abbrev)
+        incipit_slug = re.sub(r"\s+", "_", entry.incipit.strip().lower())
+        incipit_slug = re.sub(r"[^\w_-]", "", incipit_slug)
+        if incipit_slug:
+            parts.append(incipit_slug)
+        if parts:
+            slug = "--".join(parts)
+            slug_index.setdefault(slug, []).append(entry)
+
+    return header_index, slug_index
+
+
+def rebuild_manifest(
+    output_dir: Path,
+    catalog: list[CatalogEntry],
+    catalog_date: str | None = None,
+) -> tuple[Manifest, RebuildStats]:
+    """Rebuild ``manifest.json`` from ``.gabc`` files on disk.
+
+    Applies four matching rules in priority order:
+
+    1. Filename ``{id}.gabc`` → ``id``, ``elem=None``
+    2. Filename ``{id}_elem{N}.gabc`` → ``id``, ``elem=N``
+    3. Normalized ``(office_part, incipit)`` from GABC headers → unique catalog match
+    4. GregoBase filename slug → unique catalog match
+
+    Ambiguous or unmatched files are skipped and logged to
+    ``rebuild-unmatched.txt``.
+
+    Args:
+        output_dir: Directory containing ``.gabc`` files.
+        catalog: GregoBase catalog entries (from :func:`fetch_catalog`).
+        catalog_date: Catalog snapshot date string.
+
+    Returns:
+        ``(manifest, stats)``
+    """
+    from chant_omr.data.gabc_parser import parse_gabc
+
+    output_dir = Path(output_dir)
+    manifest_path = output_dir / MANIFEST_FILENAME
+
+    if manifest_path.is_file():
+        bak_path = manifest_path.with_suffix(".json.bak")
+        import shutil
+        shutil.copy2(manifest_path, bak_path)
+        logger.info("Backed up existing manifest to %s", bak_path)
+
+    catalog_by_id = {e.id: e for e in catalog}
+    header_index, slug_index = _build_catalog_indexes(catalog)
+
+    gabc_files = sorted(output_dir.glob("*.gabc"))
+    stats = RebuildStats(total_files=len(gabc_files))
+    entries: list[ManifestEntry] = []
+    unmatched_lines: list[str] = []
+
+    for gabc_path in gabc_files:
+        fname = gabc_path.name
+        raw = gabc_path.read_bytes()
+        text = raw.decode("utf-8", errors="replace")
+
+        if b"%%" not in raw or len(raw.strip()) == 0:
+            stats.invalid += 1
+            stats.skipped += 1
+            unmatched_lines.append(f"{fname}\tinvalid_gabc")
+            continue
+
+        file_sha = sha256_bytes(raw)
+        file_size = len(raw)
+
+        chant_id: int | None = None
+        elem: int | None = None
+
+        m_id = ID_FILENAME_RE.match(fname)
+        m_elem = ID_ELEM_FILENAME_RE.match(fname)
+
+        if m_id:
+            chant_id = int(m_id.group(1))
+            elem = None
+        elif m_elem:
+            chant_id = int(m_elem.group(1))
+            elem = int(m_elem.group(2))
+        else:
+            score = parse_gabc(text)
+            gabc_office = score.headers.get("office-part", "")
+            gabc_incipit = score.headers.get("name", "")
+
+            norm_op = normalize_office_part(gabc_office)
+            norm_inc = normalize_incipit(gabc_incipit)
+
+            if norm_op or norm_inc:
+                key = (norm_op, norm_inc)
+                candidates = header_index.get(key, [])
+                if len(candidates) == 1:
+                    chant_id = candidates[0].id
+                elif len(candidates) > 1:
+                    stats.ambiguous += 1
+                    stats.skipped += 1
+                    ids_str = ",".join(str(c.id) for c in candidates[:5])
+                    unmatched_lines.append(f"{fname}\tambiguous\tids={ids_str}")
+                    continue
+
+            if chant_id is None:
+                slug = _slug_from_filename(fname)
+                slug_candidates = slug_index.get(slug, [])
+                if len(slug_candidates) == 1:
+                    chant_id = slug_candidates[0].id
+                elif len(slug_candidates) > 1:
+                    stats.ambiguous += 1
+                    stats.skipped += 1
+                    ids_str = ",".join(str(c.id) for c in slug_candidates[:5])
+                    unmatched_lines.append(f"{fname}\tambiguous\tids={ids_str}")
+                    continue
+
+        if chant_id is None:
+            stats.no_match += 1
+            stats.skipped += 1
+            unmatched_lines.append(f"{fname}\tno_match")
+            continue
+
+        cat_entry = catalog_by_id.get(chant_id)
+        office_part = cat_entry.office_part if cat_entry else ""
+        incipit = cat_entry.incipit if cat_entry else ""
+
+        entries.append(ManifestEntry(
+            id=chant_id,
+            elem=elem,
+            office_part=office_part,
+            incipit=incipit,
+            filename=fname,
+            sha256=file_sha,
+            size_bytes=file_size,
+            status="ok",
+            source="rebuilt",
+            error=None,
+        ))
+        stats.matched += 1
+
+    manifest = Manifest(
+        catalog_date=catalog_date,
+        last_sync_date=None,
+        entries=entries,
+    )
+    manifest.save(manifest_path)
+
+    unmatched_path = output_dir / REBUILD_UNMATCHED_FILE
+    if unmatched_lines:
+        unmatched_path.write_text("\n".join(unmatched_lines) + "\n", encoding="utf-8")
+    elif unmatched_path.is_file():
+        unmatched_path.unlink()
+
+    return manifest, stats

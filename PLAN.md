@@ -72,7 +72,9 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 2.3a | Encoder padding mask in collate | #32 | **Done** | dataset |
 | 3.1 | Lightning training | #12 | **Done** | lightning |
 | 3.1b | Intel Arc XPU training | #38 | **Done** | device |
+| 1.1b | Manifest rebuild from disk | #16 | **Done** | gregobase |
 | 4.1 | Inference + export | #13 | **Done** (13a + 13b) | inference, export |
+| 4.1b | Encoder attention mask in inference | #43 | **Done** | export |
 | 4.2 | Benchmark evaluation | #14 | **Done** | evaluate |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
 
@@ -227,6 +229,29 @@ takes **~5.5 hours** — use phased runs (see below).
 mid-ID leaves the prior manifest row intact (no remove-before-save). A crash after
 writing a new `.gabc` but before manifest save may leave an extra file on disk;
 resume re-downloads that ID (wasteful, not data loss).
+
+##### #16 Manifest rebuild from disk
+
+`chant-omr manifest rebuild` reconstructs `manifest.json` from existing `.gabc`
+files when the manifest is lost, corrupt, or out of sync with disk.
+
+**Conservative ID matching** — re-download rather than wrong match.  Only
+assigns an ID when there is exactly one catalog match:
+
+| Priority | Rule | Match source |
+|----------|------|-------------|
+| 1 | Filename `{id}.gabc` | Filename |
+| 2 | Filename `{id}_elem{N}.gabc` | Filename |
+| 3 | Normalized `(office_part, incipit)` → unique catalog row | GABC headers |
+| 4 | GregoBase slug filename → unique catalog row | Filename slug |
+
+Ambiguous or unmatched files are skipped and logged to `rebuild-unmatched.txt`.
+Existing manifest is backed up to `manifest.json.bak` before overwrite.
+Rebuilt entries use `source: "rebuilt"` and `last_sync_date: null`.
+
+Normalization helpers (`normalize_incipit`, `normalize_office_part`) strip
+accents, lowercase, collapse whitespace, and remove punctuation for fuzzy
+header matching.  Requires one `csv.php` fetch for catalog enrichment.
 
 **Catalog order:** `csv.php` row order is not quality-sorted — early pending IDs
 often have empty metadata and stub GABC. Harmless; resume skips completed IDs.
@@ -687,11 +712,12 @@ patch count, and source checkpoint path.  `--verify` runs a parity check
 ##### #41 Decoder-step OpenVINO export
 
 `chant-omr export` now also exports a **decoder single-step** IR
-(`decoder.xml` + `decoder.bin`) with dynamic axes for both sequence length
-(``T``) and encoder patch count (``N``):
+(`decoder.xml` + `decoder.bin`) with dynamic axes for sequence length
+(``T``), encoder patch count (``N``), and encoder attention mask:
 
     input_ids      (1, T)              int64
     encoder_memory (1, N, d_model)     float32
+    encoder_mask   (1, N)              float32    (1 = real, 0 = padding)
     → next_logits  (1, 1, vocab_size)  float32
 
 The beam search loop was refactored into a backend-agnostic ``LogitsFunc``
@@ -702,6 +728,18 @@ penalty) is shared.
 `ov_decode.py` provides the full PyTorch-free pipeline:
 `load_openvino_models(dir)` → `ov_decode_token_ids(enc, dec, pixels, …)`.
 This is the inference contract for ghh (#15).
+
+##### #43 Encoder attention mask during inference
+
+The ``encoder_attention_mask`` is now passed through during inference beam
+search, preventing the decoder from attending to padded encoder patches.
+
+- ``pytorch_logits_func()`` and ``ov_decoder_logits_func()`` accept the
+  mask and **close over it** — the mask stays constant across all generation
+  steps for one image.
+- ``decode_token_ids()`` computes the mask from the image tensor shape via
+  ``build_encoder_attention_mask()``.
+- The OpenVINO decoder IR includes ``encoder_mask`` as a third input.
 
 **Performance note:** without KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36)),
 each decoder step re-processes all previous tokens — O(n²) total compute.

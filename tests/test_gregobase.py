@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -595,3 +596,138 @@ class TestDownloadCorpus:
         gb._delete_orphan_gabc_files(tmp_path, previous, new_entries)
         assert not legacy.exists()
         assert new_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# Manifest rebuild (#16)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalize:
+    def test_normalize_incipit_basic(self):
+        assert gb.normalize_incipit("Respice Domine") == "respice domine"
+
+    def test_normalize_incipit_accents(self):
+        assert gb.normalize_incipit("Résumé café") == "resume cafe"
+
+    def test_normalize_incipit_punctuation(self):
+        assert gb.normalize_incipit("Domine, adiuva me!") == "domine adiuva me"
+
+    def test_normalize_incipit_whitespace(self):
+        assert gb.normalize_incipit("  hello   world  ") == "hello world"
+
+    def test_normalize_incipit_empty(self):
+        assert gb.normalize_incipit("") == ""
+
+    def test_normalize_office_part_basic(self):
+        assert gb.normalize_office_part("Introitus") == "introitus"
+
+    def test_normalize_office_part_accents(self):
+        assert gb.normalize_office_part("Répons") == "repons"
+
+
+class TestRebuildManifest:
+    def _make_catalog(self) -> list[gb.CatalogEntry]:
+        return [
+            gb.CatalogEntry(5000, "Introitus", "Respice Domine"),
+            gb.CatalogEntry(500, "Antiphona", "Haec est virgo"),
+            gb.CatalogEntry(18698, "", ""),
+        ]
+
+    def test_rebuild_numeric_filename(self, tmp_path: Path):
+        (tmp_path / "5000.gabc").write_bytes(VALID_GABC)
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.matched == 1
+        assert stats.skipped == 0
+        entry = manifest.entries[0]
+        assert entry.id == 5000
+        assert entry.elem is None
+        assert entry.source == "rebuilt"
+        assert entry.status == "ok"
+
+    def test_rebuild_elem_filename(self, tmp_path: Path):
+        (tmp_path / "500_elem1.gabc").write_bytes(ELEM_GABC)
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.matched == 1
+        entry = manifest.entries[0]
+        assert entry.id == 500
+        assert entry.elem == 1
+
+    def test_rebuild_unique_header_match(self, tmp_path: Path):
+        gabc = b"name: Haec est virgo;\noffice-part: Antiphona;\n%%\n(c4) Ha(f)ec(g)\n"
+        (tmp_path / "mystery.gabc").write_bytes(gabc)
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.matched == 1
+        assert manifest.entries[0].id == 500
+
+    def test_rebuild_ambiguous_skipped(self, tmp_path: Path):
+        catalog = [
+            gb.CatalogEntry(100, "Introitus", "Alleluia"),
+            gb.CatalogEntry(200, "Introitus", "Alleluia"),
+        ]
+        gabc = b"name: Alleluia;\noffice-part: Introitus;\n%%\n(c4) Al(f)\n"
+        (tmp_path / "unknown.gabc").write_bytes(gabc)
+        manifest, stats = gb.rebuild_manifest(tmp_path, catalog)
+        assert stats.ambiguous == 1
+        assert stats.matched == 0
+        assert len(manifest.entries) == 0
+        unmatched = (tmp_path / gb.REBUILD_UNMATCHED_FILE).read_text(encoding="utf-8")
+        assert "unknown.gabc" in unmatched
+        assert "ambiguous" in unmatched
+
+    def test_rebuild_invalid_gabc_skipped(self, tmp_path: Path):
+        (tmp_path / "bad.gabc").write_bytes(b"no marker here")
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.invalid == 1
+        assert stats.matched == 0
+        assert len(manifest.entries) == 0
+
+    def test_rebuild_bak_written(self, tmp_path: Path):
+        old_manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=1, elem=None, office_part="", incipit="old",
+                filename="1.gabc", sha256="x", size_bytes=1,
+                status="ok", source="live", error=None,
+            )
+        ])
+        old_manifest.save(tmp_path / gb.MANIFEST_FILENAME)
+        (tmp_path / "5000.gabc").write_bytes(VALID_GABC)
+        gb.rebuild_manifest(tmp_path, self._make_catalog())
+        bak = tmp_path / "manifest.json.bak"
+        assert bak.exists()
+        loaded = gb.Manifest.from_dict(json.loads(bak.read_text(encoding="utf-8")))
+        assert loaded.entries[0].id == 1
+
+    def test_rebuild_resume_after(self, tmp_path: Path):
+        """Rebuilt manifest → download skips rebuilt IDs."""
+        (tmp_path / "5000.gabc").write_bytes(VALID_GABC)
+        manifest, _ = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert 5000 in manifest.ids_with_success()
+
+    def test_rebuild_slug_match(self, tmp_path: Path):
+        gabc = b"name: Respice Domine;\n%%\n(c4) Re(f)\n"
+        (tmp_path / "in--respice_domine.gabc").write_bytes(gabc)
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.matched == 1
+        assert manifest.entries[0].id == 5000
+
+    def test_rebuild_no_match(self, tmp_path: Path):
+        gabc = b"name: Something Unknown;\noffice-part: Weird;\n%%\n(c4) X(f)\n"
+        (tmp_path / "weird--file.gabc").write_bytes(gabc)
+        manifest, stats = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        assert stats.no_match == 1
+        assert stats.matched == 0
+
+    def test_rebuild_sha256_and_size(self, tmp_path: Path):
+        (tmp_path / "5000.gabc").write_bytes(VALID_GABC)
+        manifest, _ = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        entry = manifest.entries[0]
+        assert entry.sha256 == gb.sha256_bytes(VALID_GABC)
+        assert entry.size_bytes == len(VALID_GABC)
+
+    def test_rebuild_enriches_metadata_from_catalog(self, tmp_path: Path):
+        (tmp_path / "5000.gabc").write_bytes(VALID_GABC)
+        manifest, _ = gb.rebuild_manifest(tmp_path, self._make_catalog())
+        entry = manifest.entries[0]
+        assert entry.office_part == "Introitus"
+        assert entry.incipit == "Respice Domine"

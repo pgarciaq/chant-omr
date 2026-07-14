@@ -406,6 +406,45 @@ def audit_tokens(config, rendered_dir, top_n):
     click.echo(format_token_audit(report))
 
 
+@main.group()
+def manifest():
+    """Manifest management commands."""
+
+
+@manifest.command()
+@click.option("--output-dir", type=click.Path(exists=True), default="data/gregobase/",
+              help="Directory with .gabc files and manifest.json")
+def rebuild(output_dir):
+    """Rebuild manifest.json from existing .gabc files on disk (#16)."""
+    from pathlib import Path
+
+    from chant_omr.data.gregobase import (
+        fetch_catalog,
+        make_session,
+        rebuild_manifest,
+    )
+
+    out = Path(output_dir)
+    click.echo("Fetching catalog from csv.php ...")
+    session = make_session()
+    catalog, catalog_date = fetch_catalog(session)
+    click.echo(f"Catalog: {len(catalog)} chants"
+               + (f" (snapshot {catalog_date})" if catalog_date else ""))
+
+    mf, stats = rebuild_manifest(out, catalog, catalog_date=catalog_date)
+    click.echo(
+        f"Matched: {stats.matched} | Skipped: {stats.skipped} | "
+        f"Ambiguous: {stats.ambiguous} | No match: {stats.no_match} | "
+        f"Invalid: {stats.invalid} | Total files: {stats.total_files}"
+    )
+    if stats.skipped:
+        click.echo(f"Unmatched files logged to {out / 'rebuild-unmatched.txt'}")
+    click.echo(f"Manifest written with {len(mf.entries)} entries.")
+
+
+main.add_command(manifest)
+
+
 @main.command()
 @click.argument("checkpoint", type=click.Path(exists=True))
 @click.option(
