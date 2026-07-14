@@ -85,7 +85,7 @@ class DecoderStepForExport(nn.Module):
         encoder_memory: torch.Tensor,
         encoder_mask: torch.Tensor,
     ) -> torch.Tensor:
-        logits = self.decoder(
+        logits, _ = self.decoder(
             input_ids,
             encoder_memory,
             encoder_attention_mask=encoder_mask,

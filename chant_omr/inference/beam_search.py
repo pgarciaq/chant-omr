@@ -3,6 +3,9 @@
 Supports both PyTorch and OpenVINO backends via the ``LogitsFunc`` callable
 protocol: any function ``(token_ids, encoder_memory) → log_probs (vocab,)``
 can drive the decode loop.
+
+KV cache (#44): ``pytorch_logits_func_cached`` returns a stateful
+``LogitsFunc`` that uses the decoder's KV cache for O(n) greedy generation.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import torch
 import torch.nn.functional as F
 
 from chant_omr.model.chant_omr_model import ChantOMR
+from chant_omr.model.decoder import KVCache
 from chant_omr.model.tokenizer import GABCTokenizer
 
 LogitsFunc = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
@@ -50,20 +54,53 @@ def pytorch_logits_func(
     model: ChantOMR,
     encoder_attention_mask: torch.Tensor | None = None,
 ) -> LogitsFunc:
-    """Return a ``LogitsFunc`` backed by the PyTorch decoder.
+    """Return a ``LogitsFunc`` backed by the PyTorch decoder (no KV cache).
 
-    The *encoder_attention_mask* is closed over — it stays constant across
-    all generation steps for one image.
+    Used by beam search where per-beam cache management is complex.
+    The *encoder_attention_mask* is closed over.
     """
 
     def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         attention_mask = torch.ones_like(input_ids)
-        logits = model.decoder(
+        logits, _ = model.decoder(
             input_ids,
             memory,
             attention_mask=attention_mask,
             encoder_attention_mask=encoder_attention_mask,
         )
+        return F.log_softmax(logits[0, -1], dim=-1)
+
+    return _step
+
+
+def pytorch_logits_func_cached(
+    model: ChantOMR,
+    encoder_attention_mask: torch.Tensor | None = None,
+) -> LogitsFunc:
+    """Return a stateful ``LogitsFunc`` with KV cache for O(n) greedy decode.
+
+    On the first call (``input_ids`` has >1 token), runs the full prefix and
+    populates the cache.  On subsequent calls (single new token), only the
+    new token is processed.  The *encoder_attention_mask* and the cache are
+    closed over.
+    """
+    cache_state: list[KVCache | None] = [None]
+
+    def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
+        cached = cache_state[0]
+        if cached is not None:
+            new_ids = input_ids[:, -1:]
+        else:
+            new_ids = input_ids
+
+        logits, new_cache = model.decoder(
+            new_ids,
+            memory,
+            encoder_attention_mask=encoder_attention_mask,
+            past_key_values=cached,
+            use_cache=True,
+        )
+        cache_state[0] = new_cache
         return F.log_softmax(logits[0, -1], dim=-1)
 
     return _step
@@ -91,9 +128,9 @@ def greedy_decode(
     repetition_penalty: float = 1.0,
     encoder_attention_mask: torch.Tensor | None = None,
 ) -> list[int]:
-    """Greedy left-to-right decode starting from BOS."""
+    """Greedy left-to-right decode starting from BOS (uses KV cache)."""
     return greedy_decode_generic(
-        pytorch_logits_func(model, encoder_attention_mask),
+        pytorch_logits_func_cached(model, encoder_attention_mask),
         memory,
         bos_token_id=bos_token_id,
         eos_token_id=eos_token_id,

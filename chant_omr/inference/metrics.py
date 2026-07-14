@@ -99,7 +99,7 @@ def compute_predict_metrics(
         decoder_input = torch.tensor([gold_ids[:-1]], dtype=torch.long, device=device)
         labels = torch.tensor([gold_ids[1:]], dtype=torch.long, device=device)
         attention_mask = torch.ones_like(decoder_input)
-        logits = model.decoder(decoder_input, memory, attention_mask=attention_mask)
+        logits, _ = model.decoder(decoder_input, memory, attention_mask=attention_mask)
         loss = F.cross_entropy(
             logits.reshape(-1, logits.shape[-1]),
             labels.reshape(-1),

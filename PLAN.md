@@ -47,7 +47,7 @@ and [ADR 0013](docs/adr/0013-gabc-output-assembly-and-headers.md).
 | **Quality bar** | Overfit 10 samples (loss → ~0); predict runs without error | Benchmark targets ([#14](https://github.com/pgarciaq/chant-omr/issues/14)): GED, neume accuracy |
 | **Inference** | PyTorch predict (#13a) + OpenVINO export (#13b) | `ghh omr` on Arc ([#15](https://github.com/pgarciaq/chant-omr/issues/15)) |
 | **GABC headers** | Minimal template (`name: OMR output;` + body) | **ghh injects metadata**; model still predicts body only |
-| **Deferred** | NABC, grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36)), HF upload | — |
+| **Deferred** | NABC, grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), OpenVINO KV cache export ([#36](https://github.com/pgarciaq/chant-omr/issues/36)), HF upload | — |
 
 **Do not add a separate ROADMAP.md** — this table plus the issue tracker and ADRs
 are the roadmap. Splitting docs would duplicate the status table below and drift.
@@ -75,6 +75,7 @@ are the roadmap. Splitting docs would duplicate the status table below and drift
 | 1.1b | Manifest rebuild from disk | #16 | **Done** | gregobase |
 | 4.1 | Inference + export | #13 | **Done** (13a + 13b) | inference, export |
 | 4.1b | Encoder attention mask in inference | #43 | **Done** | export |
+| 4.1c | KV cache for decoder inference | #44 | **Done** | decoder |
 | 4.2 | Benchmark evaluation | #14 | **Done** | evaluate |
 | 4.3 | ghh consumer integration | #15 | Pending | — |
 
@@ -663,6 +664,37 @@ CLI: `--accelerator auto|cuda|xpu|cpu`, `--xpu-index`. Startup log clarifies dev
 **Device flags elsewhere:** `train` (#38); `predict` (#13a); `evaluate` (#14, PyTorch
 checkpoint path). **Not** `render` / `download` / `train-tokenizer` (CPU-only).
 
+### Device support matrix
+
+| Device | Training | Inference (PyTorch) | Inference (OpenVINO) | Status |
+|--------|----------|---------------------|----------------------|--------|
+| **CPU** | `--accelerator cpu` | `--device cpu` | `ov_decode.py` on CPU | **Done** — fully tested |
+| **Intel Arc XPU** | `--accelerator xpu` ([#38](https://github.com/pgarciaq/chant-omr/issues/38)) | `--device xpu` | Not yet wired ([#40](https://github.com/pgarciaq/chant-omr/issues/40)) | Training + PyTorch predict done; OpenVINO GPU deploy pending (#15) |
+| **CUDA / NVIDIA** | `--accelerator cuda` | `--device cuda` | Not yet wired ([#40](https://github.com/pgarciaq/chant-omr/issues/40)) | Code done, unit-tested; **never run on real hardware** ([#49](https://github.com/pgarciaq/chant-omr/issues/49)) |
+| **OpenVINO IR** | N/A | N/A | Encoder + decoder exported ([#41](https://github.com/pgarciaq/chant-omr/issues/41), [#43](https://github.com/pgarciaq/chant-omr/issues/43)); `ov_decode.py` full pipeline | **Done** — export + CPU decode verified |
+
+**What "Done" means per column:**
+
+- **Training:** Lightning `Trainer` launches, gradient step completes, checkpoint saves.
+  Smoke-tested via overfit gate (10 samples, loss → ~0) on CPU and Intel Arc XPU.
+  CUDA path is coded and unit-tested but awaits a real NVIDIA GPU run (#49).
+- **Inference (PyTorch):** `chant-omr predict` loads checkpoint, runs beam search,
+  outputs valid GABC. Works on CPU, XPU, and CUDA (with `--device` flag).
+- **Inference (OpenVINO):** `chant-omr export --format openvino` produces
+  `encoder.xml` + `decoder.xml` IR files. `ov_decode_token_ids()` runs the full
+  encode → beam search loop without PyTorch. Verified on CPU.
+  Arc GPU deploy is the ghh production path (#15).
+
+**Remaining gaps:**
+
+| Gap | Issue | Blocker? |
+|-----|-------|----------|
+| No real NVIDIA training run (convergence baseline) | [#49](https://github.com/pgarciaq/chant-omr/issues/49) | Yes — need cloud GPU time |
+| ghh integration on Intel Arc via OpenVINO | [#15](https://github.com/pgarciaq/chant-omr/issues/15) | Yes — production deploy |
+| PyTorch-free predict CLI (skip PyTorch import entirely) | [#40](https://github.com/pgarciaq/chant-omr/issues/40) | No — nice-to-have |
+| KV cache — PyTorch greedy (O(n) per step) | [#44](https://github.com/pgarciaq/chant-omr/issues/44) | **Done** |
+| KV cache — OpenVINO export with cache tensors | [#36](https://github.com/pgarciaq/chant-omr/issues/36) | No — depends on #44 |
+
 ---
 
 ## Epic 4: Evaluation and Deployment
@@ -684,7 +716,7 @@ resolver; production deploy uses OpenVINO (#15), not PyTorch XPU. See [#13](http
 - HuggingFace upload (`pgarciaq/chant-omr`) — **deferred**
 - GABC assembly: body from model, headers per [ADR 0013](docs/adr/0013-gabc-output-assembly-and-headers.md)
 - OpenVINO strategy: [ADR 0012](docs/adr/0012-openvino-export-and-inference-deployment.md)
-- Deferred: grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36))
+- Deferred: grammar-constrained decoding ([#37](https://github.com/pgarciaq/chant-omr/issues/37)), OpenVINO KV cache export ([#36](https://github.com/pgarciaq/chant-omr/issues/36))
 
 ##### 13b implementation details
 
@@ -741,9 +773,31 @@ search, preventing the decoder from attending to padded encoder patches.
   ``build_encoder_attention_mask()``.
 - The OpenVINO decoder IR includes ``encoder_mask`` as a third input.
 
-**Performance note:** without KV cache ([#36](https://github.com/pgarciaq/chant-omr/issues/36)),
-each decoder step re-processes all previous tokens — O(n²) total compute.
-Acceptable for v0 typical scores (~200-400 tokens).
+**Performance note:** PyTorch greedy decoding now uses KV cache ([#44](https://github.com/pgarciaq/chant-omr/issues/44))
+for O(n) generation — each step only processes the new token, reusing cached
+key/value projections from previous steps.  Cross-attention K/V are computed
+once and reused.  Beam search still uses the non-cached path.
+OpenVINO KV cache export is deferred to [#36](https://github.com/pgarciaq/chant-omr/issues/36).
+
+##### #44 KV cache implementation details
+
+The decoder supports an optional KV cache via `past_key_values` / `use_cache`
+parameters on `ChantDecoder.forward()`.
+
+- **Types:** `LayerCache` (NamedTuple of `self_k, self_v, cross_k, cross_v`)
+  and `KVCache = list[LayerCache]` — one entry per decoder layer.
+- **Self-attention:** cached K/V are concatenated with new projections; RoPE
+  uses a `start_pos` offset so absolute positions are correct.
+- **Cross-attention:** K/V are computed on the first call from `encoder_memory`
+  and reused on all subsequent steps (encoder memory is constant during
+  generation).
+- **Training:** completely unchanged — `past_key_values=None` and
+  `use_cache=False` (defaults) give the original single-tensor return path.
+- **Greedy decode:** `pytorch_logits_func_cached()` closure manages cache
+  state; first call processes the full BOS prefix, subsequent calls pass only
+  the last token.
+- **Beam search:** uses the non-cached `pytorch_logits_func()` — per-beam
+  cache management is deferred.
 
 ### 4.2 Benchmark Evaluation
 

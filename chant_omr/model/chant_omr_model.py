@@ -189,12 +189,13 @@ class ChantOMR(nn.Module):
     ) -> torch.Tensor:
         """Return next-token logits ``(B, T, vocab_size)``."""
         memory = self.encode(pixel_values, encoder_attention_mask=encoder_attention_mask)
-        return self.decoder(
+        logits, _ = self.decoder(
             input_ids,
             memory,
             attention_mask=attention_mask,
             encoder_attention_mask=encoder_attention_mask,
         )
+        return logits
 
 
 def build_model(

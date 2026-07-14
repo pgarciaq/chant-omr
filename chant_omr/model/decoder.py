@@ -8,17 +8,38 @@ Configuration follows Transcoda's design:
     - Pre-LN, GELU feed-forward
     - RoPE on decoder self-attention
     - 2D sinusoidal positional encoding on encoder features lives in #11 projector
+
+KV cache (#44): during autoregressive inference each layer can reuse previously
+computed key/value projections. See :class:`LayerCache` and the ``use_cache``
+/ ``past_key_values`` parameters on :class:`ChantDecoder`.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class LayerCache(NamedTuple):
+    """Cached key/value tensors for one decoder layer.
+
+    All tensors are ``(B, H, S, D)`` where ``S`` is the accumulated sequence
+    length (self-attention) or the fixed encoder length (cross-attention).
+    """
+
+    self_k: torch.Tensor
+    self_v: torch.Tensor
+    cross_k: torch.Tensor
+    cross_v: torch.Tensor
+
+
+KVCache = list[LayerCache]
+"""Per-layer cache: ``past_key_values[i]`` holds :class:`LayerCache` for layer *i*."""
 
 
 @dataclass
@@ -151,7 +172,13 @@ def build_cross_attention_mask(
 
 
 class CausalSelfAttention(nn.Module):
-    """Multi-head causal self-attention with RoPE."""
+    """Multi-head causal self-attention with RoPE.
+
+    When *past_kv* is provided, only the new (last) token positions are
+    projected; the cached K/V from previous steps are concatenated before
+    the attention computation.  RoPE is applied at the correct absolute
+    position via *start_pos*.
+    """
 
     def __init__(self, config: DecoderConfig):
         super().__init__()
@@ -169,7 +196,9 @@ class CausalSelfAttention(nn.Module):
         hidden_states: torch.Tensor,
         *,
         attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         batch, seq_len, _ = hidden_states.shape
         q = (
             self.q_proj(hidden_states)
@@ -187,16 +216,37 @@ class CausalSelfAttention(nn.Module):
             .transpose(1, 2)
         )
 
-        cos, sin = self.rope(seq_len, device=hidden_states.device, dtype=hidden_states.dtype)
+        if past_kv is not None:
+            start_pos = past_kv[0].shape[2]
+        else:
+            start_pos = 0
+
+        total_len = start_pos + seq_len
+        cos, sin = self.rope(total_len, device=hidden_states.device, dtype=hidden_states.dtype)
+        cos = cos[start_pos:total_len]
+        sin = sin[start_pos:total_len]
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        attn_mask = build_self_attention_mask(
-            seq_len,
-            attention_mask=attention_mask,
-            device=hidden_states.device,
-        )
-        if attn_mask is not None and attn_mask.shape[0] == 1 and batch > 1:
-            attn_mask = attn_mask.expand(batch, -1, -1, -1)
+        if past_kv is not None:
+            k = torch.cat([past_kv[0], k], dim=2)
+            v = torch.cat([past_kv[1], v], dim=2)
+
+        new_kv: tuple[torch.Tensor, torch.Tensor] | None = None
+        if use_cache:
+            new_kv = (k, v)
+
+        full_len = k.shape[2]
+
+        if past_kv is not None:
+            attn_mask = None
+        else:
+            attn_mask = build_self_attention_mask(
+                full_len,
+                attention_mask=attention_mask,
+                device=hidden_states.device,
+            )
+            if attn_mask is not None and attn_mask.shape[0] == 1 and batch > 1:
+                attn_mask = attn_mask.expand(batch, -1, -1, -1)
 
         dropout_p = self.dropout.p if self.training else 0.0
         context = F.scaled_dot_product_attention(
@@ -207,11 +257,16 @@ class CausalSelfAttention(nn.Module):
             dropout_p=dropout_p,
         )
         context = context.transpose(1, 2).contiguous().view(batch, seq_len, -1)
-        return self.out_proj(context)
+        return self.out_proj(context), new_kv
 
 
 class CrossAttention(nn.Module):
-    """Multi-head cross-attention from decoder tokens to encoder memory."""
+    """Multi-head cross-attention from decoder tokens to encoder memory.
+
+    When *past_kv* is provided the encoder K/V projections are reused from
+    the cache instead of being recomputed.  Since encoder memory is constant
+    across generation steps this is always safe.
+    """
 
     def __init__(self, config: DecoderConfig):
         super().__init__()
@@ -229,26 +284,37 @@ class CrossAttention(nn.Module):
         encoder_memory: torch.Tensor,
         *,
         encoder_attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         batch, seq_len, _ = hidden_states.shape
-        _, enc_len, _ = encoder_memory.shape
 
         q = (
             self.q_proj(hidden_states)
             .view(batch, seq_len, self.n_heads, self.head_dim)
             .transpose(1, 2)
         )
-        k = (
-            self.k_proj(encoder_memory)
-            .view(batch, enc_len, self.n_heads, self.head_dim)
-            .transpose(1, 2)
-        )
-        v = (
-            self.v_proj(encoder_memory)
-            .view(batch, enc_len, self.n_heads, self.head_dim)
-            .transpose(1, 2)
-        )
 
+        if past_kv is not None:
+            k, v = past_kv
+        else:
+            _, enc_len, _ = encoder_memory.shape
+            k = (
+                self.k_proj(encoder_memory)
+                .view(batch, enc_len, self.n_heads, self.head_dim)
+                .transpose(1, 2)
+            )
+            v = (
+                self.v_proj(encoder_memory)
+                .view(batch, enc_len, self.n_heads, self.head_dim)
+                .transpose(1, 2)
+            )
+
+        new_kv: tuple[torch.Tensor, torch.Tensor] | None = None
+        if use_cache:
+            new_kv = (k, v)
+
+        enc_len = k.shape[2]
         attn_mask = None
         if encoder_attention_mask is not None:
             attn_mask = build_cross_attention_mask(
@@ -267,7 +333,7 @@ class CrossAttention(nn.Module):
             dropout_p=dropout_p,
         )
         context = context.transpose(1, 2).contiguous().view(batch, seq_len, -1)
-        return self.out_proj(context)
+        return self.out_proj(context), new_kv
 
 
 class FeedForward(nn.Module):
@@ -306,27 +372,44 @@ class DecoderLayer(nn.Module):
         *,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        layer_cache: LayerCache | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, LayerCache | None]:
+        sa_past = None if layer_cache is None else (layer_cache.self_k, layer_cache.self_v)
+        xa_past = None if layer_cache is None else (layer_cache.cross_k, layer_cache.cross_v)
+
         residual = hidden_states
         hidden_states = self.self_attn_norm(hidden_states)
-        hidden_states = residual + self.dropout(
-            self.self_attn(hidden_states, attention_mask=attention_mask)
+        sa_out, sa_kv = self.self_attn(
+            hidden_states,
+            attention_mask=attention_mask,
+            past_kv=sa_past,
+            use_cache=use_cache,
         )
+        hidden_states = residual + self.dropout(sa_out)
 
         residual = hidden_states
         hidden_states = self.cross_attn_norm(hidden_states)
-        hidden_states = residual + self.dropout(
-            self.cross_attn(
-                hidden_states,
-                encoder_memory,
-                encoder_attention_mask=encoder_attention_mask,
-            )
+        xa_out, xa_kv = self.cross_attn(
+            hidden_states,
+            encoder_memory,
+            encoder_attention_mask=encoder_attention_mask,
+            past_kv=xa_past,
+            use_cache=use_cache,
         )
+        hidden_states = residual + self.dropout(xa_out)
 
         residual = hidden_states
         hidden_states = self.ffn_norm(hidden_states)
         hidden_states = residual + self.dropout(self.ffn(hidden_states))
-        return hidden_states
+
+        new_cache: LayerCache | None = None
+        if use_cache and sa_kv is not None and xa_kv is not None:
+            new_cache = LayerCache(
+                self_k=sa_kv[0], self_v=sa_kv[1],
+                cross_k=xa_kv[0], cross_v=xa_kv[1],
+            )
+        return hidden_states, new_cache
 
 
 class ChantDecoder(nn.Module):
@@ -361,8 +444,16 @@ class ChantDecoder(nn.Module):
         *,
         attention_mask: torch.Tensor | None = None,
         encoder_attention_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Return next-token logits ``(B, T, vocab_size)``."""
+        past_key_values: KVCache | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, KVCache | None]:
+        """Return next-token logits ``(B, T, vocab_size)``.
+
+        When *use_cache* is ``True``, also returns a :data:`KVCache` list that
+        should be passed back as *past_key_values* on the next call.  During
+        training, leave both parameters at their defaults for unchanged
+        behavior (the second return value will be ``None``).
+        """
         if input_ids.ndim != 2:
             raise ValueError(f"expected input_ids (B, T), got {tuple(input_ids.shape)}")
         if encoder_memory.ndim != 3:
@@ -378,21 +469,31 @@ class ChantDecoder(nn.Module):
             raise ValueError("batch size mismatch between input_ids and encoder_memory")
 
         seq_len = input_ids.shape[1]
-        if seq_len > self.config.max_seq_len:
+        total_len = seq_len
+        if past_key_values is not None and len(past_key_values) > 0:
+            total_len += past_key_values[0].self_k.shape[2]
+        if total_len > self.config.max_seq_len:
             raise ValueError(
-                f"sequence length {seq_len} exceeds max_seq_len {self.config.max_seq_len}"
+                f"total sequence length {total_len} exceeds max_seq_len {self.config.max_seq_len}"
             )
 
         hidden_states = self.embed_tokens(input_ids)
-        for layer in self.layers:
-            hidden_states = layer(
+        new_caches: KVCache = []
+        for i, layer in enumerate(self.layers):
+            lc = past_key_values[i] if past_key_values is not None else None
+            hidden_states, layer_cache = layer(
                 hidden_states,
                 encoder_memory,
                 attention_mask=attention_mask,
                 encoder_attention_mask=encoder_attention_mask,
+                layer_cache=lc,
+                use_cache=use_cache,
             )
+            if layer_cache is not None:
+                new_caches.append(layer_cache)
         hidden_states = self.final_norm(hidden_states)
-        return self.lm_head(hidden_states)
+        logits = self.lm_head(hidden_states)
+        return logits, new_caches if use_cache else None
 
 
 def build_decoder(config: DecoderConfig | None = None) -> ChantDecoder:

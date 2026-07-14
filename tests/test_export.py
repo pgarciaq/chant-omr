@@ -182,7 +182,7 @@ class TestDecoderStepForExport:
         dummy_mask = torch.ones(1, 64)
         with torch.inference_mode():
             step_out = dec(dummy_ids, dummy_memory, dummy_mask)
-            full_out = model.decoder(
+            full_out, _ = model.decoder(
                 dummy_ids, dummy_memory,
                 encoder_attention_mask=dummy_mask,
             )
