@@ -272,14 +272,17 @@ class TestCleanup:
         self._populate(tmp_path)
         stats = rd.cleanup_rendered_dir(tmp_path, dry_run=True)
         assert stats.orphan_gabc_deleted == 1
-        assert stats.png_only_orphans == 1
+        assert stats.orphan_png_deleted == 1
         assert (tmp_path / "--slug--.gabc").exists()
+        assert (tmp_path / "10001.png").exists()
 
     def test_cleanup_delete(self, tmp_path: Path):
         self._populate(tmp_path)
         stats = rd.cleanup_rendered_dir(tmp_path, dry_run=False)
         assert stats.orphan_gabc_deleted == 1
+        assert stats.orphan_png_deleted == 1
         assert not (tmp_path / "--slug--.gabc").exists()
+        assert not (tmp_path / "10001.png").exists()
         assert (tmp_path / "10000.gabc").exists()
         assert (tmp_path / "10000.png").exists()
 

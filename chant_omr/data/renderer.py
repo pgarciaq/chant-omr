@@ -499,7 +499,7 @@ class CleanupStats:
     """Summary of a cleanup pass on a rendered directory."""
 
     orphan_gabc_deleted: int = 0
-    png_only_orphans: int = 0
+    orphan_png_deleted: int = 0
 
 
 def _is_id_based_stem(stem: str) -> bool:
@@ -535,13 +535,16 @@ def cleanup_rendered_dir(
     *,
     dry_run: bool = True,
 ) -> CleanupStats:
-    """Delete orphan ``.gabc`` files and report PNG-only orphans."""
+    """Delete orphan ``.gabc`` and orphan ``.png`` files."""
     stats = CleanupStats()
-    orphan_gabcs = find_orphan_gabc(rendered_dir)
-    for gabc in orphan_gabcs:
+    for gabc in find_orphan_gabc(rendered_dir):
         if not dry_run:
             gabc.unlink()
         stats.orphan_gabc_deleted += 1
 
-    stats.png_only_orphans = len(find_png_only_orphans(rendered_dir))
+    for png in find_png_only_orphans(rendered_dir):
+        if not dry_run:
+            png.unlink()
+        stats.orphan_png_deleted += 1
+
     return stats

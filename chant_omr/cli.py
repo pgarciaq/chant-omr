@@ -315,13 +315,9 @@ def cleanup(rendered_dir, dry_run):
     stats = cleanup_rendered_dir(Path(rendered_dir), dry_run=dry_run)
     mode = "DRY RUN" if dry_run else "DELETED"
     click.echo(f"Orphan .gabc (no matching .png): {stats.orphan_gabc_deleted} [{mode}]")
-    if stats.png_only_orphans:
-        click.echo(
-            f"PNG-only orphans (no .gabc sidecar): {stats.png_only_orphans} "
-            f"[use --force re-render to backfill]"
-        )
-    if dry_run and stats.orphan_gabc_deleted:
-        click.echo("Re-run with --no-dry-run to delete orphan .gabc files.")
+    click.echo(f"Orphan .png (no matching .gabc): {stats.orphan_png_deleted} [{mode}]")
+    if dry_run and (stats.orphan_gabc_deleted or stats.orphan_png_deleted):
+        click.echo("Re-run with --no-dry-run to delete orphan files.")
 
 
 @main.command("train-tokenizer")
