@@ -62,17 +62,22 @@ def ov_encoder_infer(
     return np.array(result[0])
 
 
-def ov_decoder_logits_func(decoder_compiled) -> LogitsFunc:
+def ov_decoder_logits_func(
+    decoder_compiled,
+    encoder_mask: np.ndarray,
+) -> LogitsFunc:
     """Return a ``LogitsFunc`` backed by the OpenVINO decoder IR.
 
-    The returned callable converts numpy ↔ torch at the boundary so the
-    generic decode loop works unchanged.
+    The *encoder_mask* ``(1, N)`` is closed over — it stays constant across
+    all generation steps for one image.  The returned callable converts
+    numpy ↔ torch at the boundary so the generic decode loop works unchanged.
     """
 
     def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         result = decoder_compiled({
             "input_ids": input_ids.cpu().numpy(),
             "encoder_memory": memory.cpu().numpy(),
+            "encoder_mask": encoder_mask,
         })
         next_logits = torch.from_numpy(np.array(result[0]))
         return F.log_softmax(next_logits[0, 0], dim=-1)
@@ -104,7 +109,8 @@ def ov_decode_token_ids(
     """
     encoder_memory = ov_encoder_infer(encoder_compiled, pixel_values)
     memory_tensor = torch.from_numpy(encoder_memory)
-    logits_fn = ov_decoder_logits_func(decoder_compiled)
+    encoder_mask = np.ones((1, encoder_memory.shape[1]), dtype=np.float32)
+    logits_fn = ov_decoder_logits_func(decoder_compiled, encoder_mask)
 
     if config.beam_width <= 1:
         return greedy_decode_generic(

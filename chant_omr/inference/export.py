@@ -61,12 +61,18 @@ class EncoderForExport(nn.Module):
 
 
 class DecoderStepForExport(nn.Module):
-    """Single decoder forward step: ``(input_ids, encoder_memory) → logits``.
+    """Single decoder forward step with encoder attention mask.
 
-    Returns logits for the **last** token position only, shaped
-    ``(1, 1, vocab_size)``.  Both ``T`` (token sequence length) and ``N``
-    (encoder patch count) are dynamic axes so the same IR works across
-    generation steps and image sizes.
+    Inputs:
+        input_ids        ``(1, T)``       int64
+        encoder_memory   ``(1, N, D)``    float32
+        encoder_mask     ``(1, N)``       float32   (1 = real, 0 = padding)
+
+    Output:
+        next_logits      ``(1, 1, vocab_size)`` float32
+
+    All three spatial dimensions (``T``, ``N``) are dynamic axes so the same
+    IR works across generation steps and image sizes.
     """
 
     def __init__(self, model: ChantOMR) -> None:
@@ -77,8 +83,13 @@ class DecoderStepForExport(nn.Module):
         self,
         input_ids: torch.Tensor,
         encoder_memory: torch.Tensor,
+        encoder_mask: torch.Tensor,
     ) -> torch.Tensor:
-        logits = self.decoder(input_ids, encoder_memory)
+        logits = self.decoder(
+            input_ids,
+            encoder_memory,
+            encoder_attention_mask=encoder_mask,
+        )
         return logits[:, -1:, :]
 
 
@@ -282,20 +293,22 @@ def export_decoder_openvino(
 
     dummy_ids = torch.ones(1, trace_seq_len, dtype=torch.long)
     dummy_memory = torch.randn(1, trace_num_patches, chant_config.d_model)
+    dummy_mask = torch.ones(1, trace_num_patches)
 
     with tempfile.TemporaryDirectory() as tmp:
         onnx_path = Path(tmp) / "decoder.onnx"
         with torch.inference_mode():
             torch.onnx.export(
                 dec_module,
-                (dummy_ids, dummy_memory),
+                (dummy_ids, dummy_memory, dummy_mask),
                 str(onnx_path),
-                input_names=["input_ids", "encoder_memory"],
+                input_names=["input_ids", "encoder_memory", "encoder_mask"],
                 output_names=["next_logits"],
                 opset_version=18,
                 dynamic_axes={
                     "input_ids": {1: "seq_len"},
                     "encoder_memory": {1: "num_patches"},
+                    "encoder_mask": {1: "num_patches"},
                 },
             )
 
@@ -382,15 +395,17 @@ def verify_decoder_openvino_parity(
 
     dummy_ids = torch.ones(1, seq_len, dtype=torch.long)
     dummy_memory = torch.randn(1, num_patches, model.config.d_model)
+    dummy_mask = torch.ones(1, num_patches)
 
     with torch.inference_mode():
-        pt_out = dec_module(dummy_ids, dummy_memory)
+        pt_out = dec_module(dummy_ids, dummy_memory, dummy_mask)
 
     core = ov.Core()
     compiled = core.compile_model(str(xml_path), "CPU")
     ov_result = compiled({
         "input_ids": dummy_ids.numpy(),
         "encoder_memory": dummy_memory.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
     })
     ov_out = torch.from_numpy(np.array(ov_result[0]))
 

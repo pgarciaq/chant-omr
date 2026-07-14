@@ -167,8 +167,9 @@ class TestDecoderStepForExport:
         dec.eval()
         dummy_ids = torch.tensor([[1, 10, 11]], dtype=torch.long)
         dummy_memory = torch.randn(1, 64, model.config.d_model)
+        dummy_mask = torch.ones(1, 64)
         with torch.inference_mode():
-            out = dec(dummy_ids, dummy_memory)
+            out = dec(dummy_ids, dummy_memory, dummy_mask)
         assert out.shape == (1, 1, model.config.vocab_size)
 
     def test_last_position_matches_full_forward(self):
@@ -178,9 +179,13 @@ class TestDecoderStepForExport:
         dec.eval()
         dummy_ids = torch.tensor([[1, 10, 11, 12]], dtype=torch.long)
         dummy_memory = torch.randn(1, 64, model.config.d_model)
+        dummy_mask = torch.ones(1, 64)
         with torch.inference_mode():
-            step_out = dec(dummy_ids, dummy_memory)
-            full_out = model.decoder(dummy_ids, dummy_memory)
+            step_out = dec(dummy_ids, dummy_memory, dummy_mask)
+            full_out = model.decoder(
+                dummy_ids, dummy_memory,
+                encoder_attention_mask=dummy_mask,
+            )
         assert torch.allclose(step_out[0, 0], full_out[0, -1], atol=1e-6)
 
 

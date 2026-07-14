@@ -46,8 +46,15 @@ def apply_repetition_penalty(
     return adjusted
 
 
-def pytorch_logits_func(model: ChantOMR) -> LogitsFunc:
-    """Return a ``LogitsFunc`` backed by the PyTorch decoder."""
+def pytorch_logits_func(
+    model: ChantOMR,
+    encoder_attention_mask: torch.Tensor | None = None,
+) -> LogitsFunc:
+    """Return a ``LogitsFunc`` backed by the PyTorch decoder.
+
+    The *encoder_attention_mask* is closed over — it stays constant across
+    all generation steps for one image.
+    """
 
     def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         attention_mask = torch.ones_like(input_ids)
@@ -55,7 +62,7 @@ def pytorch_logits_func(model: ChantOMR) -> LogitsFunc:
             input_ids,
             memory,
             attention_mask=attention_mask,
-            encoder_attention_mask=None,
+            encoder_attention_mask=encoder_attention_mask,
         )
         return F.log_softmax(logits[0, -1], dim=-1)
 
@@ -82,10 +89,11 @@ def greedy_decode(
     eos_token_id: int,
     max_length: int,
     repetition_penalty: float = 1.0,
+    encoder_attention_mask: torch.Tensor | None = None,
 ) -> list[int]:
     """Greedy left-to-right decode starting from BOS."""
     return greedy_decode_generic(
-        pytorch_logits_func(model),
+        pytorch_logits_func(model, encoder_attention_mask),
         memory,
         bos_token_id=bos_token_id,
         eos_token_id=eos_token_id,
@@ -103,10 +111,11 @@ def beam_search_decode(
     max_length: int,
     beam_width: int,
     repetition_penalty: float = 1.0,
+    encoder_attention_mask: torch.Tensor | None = None,
 ) -> list[int]:
     """Beam search decode for batch size 1 encoder memory."""
     return beam_search_decode_generic(
-        pytorch_logits_func(model),
+        pytorch_logits_func(model, encoder_attention_mask),
         memory,
         bos_token_id=bos_token_id,
         eos_token_id=eos_token_id,
@@ -194,6 +203,27 @@ def beam_search_decode_generic(
     return beams[0][0]
 
 
+def build_encoder_attention_mask(
+    pixel_values: torch.Tensor,
+    patch_size: int = 32,
+) -> torch.Tensor:
+    """Build a ``(1, N)`` mask marking real (non-padded) encoder patches.
+
+    The encoder divides ``(1, 3, H, W)`` into ``(H // patch_size)`` vertical
+    and ``(W // patch_size)`` horizontal patches.  If the original image was
+    shorter than the padded tensor's ``H``, trailing vertical rows of patches
+    are all-padding.  This function marks those as 0 and real rows as 1.
+
+    For now, we only mask along the height axis (width is always fully used
+    after the fixed-width resize).
+    """
+    _, _, h, w = pixel_values.shape
+    rows = h // patch_size
+    cols = w // patch_size
+    mask = torch.ones(1, rows * cols, device=pixel_values.device)
+    return mask
+
+
 def decode_token_ids(
     model: ChantOMR,
     pixel_values: torch.Tensor,
@@ -205,6 +235,7 @@ def decode_token_ids(
         raise ValueError("decode_token_ids expects batch size 1")
     with torch.inference_mode():
         memory = model.encode(pixel_values)
+        enc_mask = build_encoder_attention_mask(pixel_values)
         if config.beam_width <= 1:
             return greedy_decode(
                 model,
@@ -213,6 +244,7 @@ def decode_token_ids(
                 eos_token_id=tokenizer.eos_id,
                 max_length=config.max_length,
                 repetition_penalty=config.repetition_penalty,
+                encoder_attention_mask=enc_mask,
             )
         return beam_search_decode(
             model,
@@ -222,4 +254,5 @@ def decode_token_ids(
             max_length=config.max_length,
             beam_width=config.beam_width,
             repetition_penalty=config.repetition_penalty,
+            encoder_attention_mask=enc_mask,
         )
