@@ -1,10 +1,138 @@
-# NVIDIA Grace Hopper (GH200) Training Setup on RHEL 9
+# ChantOMR Training Plan
 
-Complete guide for setting up RHEL 9 bare metal on an NVIDIA Grace Hopper
-GH200 for training the ChantOMR model.  Every command is shown.  The machine
-is **aarch64** (ARM) — this affects package names and repos.
+How to run the full training on an NVIDIA GPU.  Two paths are documented:
+
+- **Option A** — Cloud GPU rental (Lambda Labs, RunPod, etc.) — cheapest,
+  fastest to get started, ~$5-10 total.
+- **Option B** — NVIDIA Grace Hopper (GH200) bare metal on RHEL 9 — for when
+  you have access to dedicated hardware.
 
 Related: [#49 Full training run on NVIDIA GPU](https://github.com/pgarciaq/chant-omr/issues/49)
+
+---
+
+# Option A: Cloud GPU (Lambda Labs / RunPod)
+
+The fastest path.  These providers offer Ubuntu instances with CUDA + PyTorch
+pre-installed.  No driver setup needed — just SSH in, clone, and train.
+
+## Estimated cost
+
+The ChantOMR model is small (~56M params) and the dataset is ~20k images.
+Training takes **2-4 hours on an A100**, costing under $10 total.
+
+| Provider | GPU | $/hr | Est. total | Billing |
+|----------|-----|------|------------|---------|
+| Lambda Labs | A100 80GB | $1.29 | ~$3-5 | Per-hour |
+| RunPod | A100 80GB | $1.39 | ~$3-6 | Per-second |
+| Vast.ai (spot) | A100 80GB | ~$0.60-0.80 | ~$2-3 | Per-hour, interruptible |
+| JarvisLabs | A100 80GB | $1.49 | ~$3-6 | Per-minute |
+
+Avoid AWS/GCP/Azure for this — same hardware at 5-10x the price.
+
+Avoid Google Colab — sessions disconnect after 3-5 hours, no SSH, awkward
+data transfer, and A100 burns ~15 compute units/hr.
+
+## Step-by-step (cloud GPU)
+
+### 1. Launch an instance
+
+On Lambda Labs or RunPod, launch a single A100 instance with:
+- **OS:** Ubuntu 22.04 or 24.04 (pre-installed)
+- **GPU:** 1x A100 80GB (or H100 if available at similar price)
+- **Storage:** 100 GB (dataset is ~30 GB, plus model + checkpoints)
+
+Note the instance IP address for SSH.
+
+### 2. SSH in and clone the repo
+
+```bash
+ssh ubuntu@INSTANCE_IP
+git clone https://github.com/pgarciaq/chant-omr.git
+cd chant-omr
+```
+
+### 3. Create venv and install dependencies
+
+The instance comes with Python 3.11 or 3.12 and CUDA pre-installed.
+Both are supported by ChantOMR (`requires-python = ">=3.11,<3.14"`).
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+Verify PyTorch sees the GPU:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+### 4. Transfer the dataset from your laptop
+
+From your **laptop** (not the cloud instance):
+
+```bash
+rsync -avz --progress \
+  ~/dev/lpacleaner/chant-omr/data/gregobase/ \
+  ~/dev/lpacleaner/chant-omr/data/rendered/ \
+  ~/dev/lpacleaner/chant-omr/data/tokenizer/ \
+  ubuntu@INSTANCE_IP:~/chant-omr/data/
+```
+
+### 5. Smoke test
+
+```bash
+python scripts/train.py \
+  --accelerator cuda \
+  --overfit-n 10 \
+  --epochs 20 \
+  --batch-size 2
+```
+
+Verify loss decreases.  Check GPU utilization: `nvidia-smi`.
+
+### 6. Full training run
+
+```bash
+tmux new -s train
+source .venv/bin/activate
+python scripts/train.py \
+  --accelerator cuda \
+  --precision bf16-mixed \
+  --batch-size 8 \
+  --epochs 50
+```
+
+Use `tmux` so the training survives SSH disconnections.
+
+With an A100 and batch size 8, expect ~2-4 hours.  Try `--batch-size 32`
+if GPU memory allows (A100 80GB should handle it).
+
+### 7. Copy the best checkpoint back
+
+```bash
+# From the cloud instance
+scp checkpoints/chant-omr-epoch=*val_loss=*.ckpt \
+  you@laptop:~/dev/lpacleaner/chant-omr/checkpoints/
+
+# Or from your laptop, pull it
+scp ubuntu@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
+  ~/dev/lpacleaner/chant-omr/checkpoints/
+```
+
+Copy the **1 best checkpoint** (lowest val_loss).  Then **terminate the
+instance** to stop billing.
+
+---
+
+# Option B: NVIDIA Grace Hopper (GH200) on RHEL 9
+
+For when you have access to dedicated GH200 hardware.  This path requires
+installing RHEL 9, NVIDIA drivers, and CUDA from scratch.  The machine is
+**aarch64** (ARM) — this affects package names and repos.
 
 ---
 
@@ -369,7 +497,7 @@ verified, the GH200 copies can be deleted.
 
 ---
 
-## Quick reference: full sequence of commands
+## Quick reference: full sequence of commands (Option B)
 
 ```bash
 # Phase 1: NVIDIA (as root or sudo)
@@ -396,4 +524,25 @@ rsync -avz --progress data/gregobase/ data/rendered/ data/tokenizer/ you@gh200:~
 tmux new -s train
 source .venv/bin/activate
 python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
+```
+
+## Quick reference: full sequence of commands (Option A — cloud GPU)
+
+```bash
+# On the cloud instance (SSH in first)
+git clone https://github.com/pgarciaq/chant-omr.git && cd chant-omr
+python3 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip && pip install -e ".[dev]"
+
+# On your LAPTOP (transfer dataset):
+rsync -avz --progress data/gregobase/ data/rendered/ data/tokenizer/ ubuntu@INSTANCE_IP:~/chant-omr/data/
+
+# On the cloud instance (train):
+tmux new -s train
+source .venv/bin/activate
+python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
+
+# On your LAPTOP (copy best checkpoint back, then TERMINATE the instance):
+scp ubuntu@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
+  ~/dev/lpacleaner/chant-omr/checkpoints/
 ```
