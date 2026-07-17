@@ -11,35 +11,61 @@ Related: [#49 Full training run on NVIDIA GPU](https://github.com/pgarciaq/chant
 
 ---
 
-# Option A: Cloud GPU (Lambda Labs / RunPod)
+# Option A: Cloud GPU
 
-The fastest path.  These providers offer Ubuntu instances with CUDA + PyTorch
-pre-installed.  No driver setup needed — just SSH in, clone, and train.
+The fastest path.  Cloud GPU providers offer Ubuntu instances with CUDA +
+PyTorch pre-installed.  No driver setup needed — just SSH in, clone, and train.
 
 ## Estimated cost
 
 The ChantOMR model is small (~56M params) and the dataset is ~20k images.
-Training takes **2-4 hours on an A100**, costing under $10 total.
+Training takes **3-6 hours on a consumer/prosumer GPU**, costing under $5 total.
 
-| Provider | GPU | $/hr | Est. total | Billing |
-|----------|-----|------|------------|---------|
-| Lambda Labs | A100 80GB | $1.29 | ~$3-5 | Per-hour |
-| RunPod | A100 80GB | $1.39 | ~$3-6 | Per-second |
-| Vast.ai (spot) | A100 80GB | ~$0.60-0.80 | ~$2-3 | Per-hour, interruptible |
-| JarvisLabs | A100 80GB | $1.49 | ~$3-6 | Per-minute |
+### Recommended providers and GPUs
 
-Avoid AWS/GCP/Azure for this — same hardware at 5-10x the price.
+| Provider | GPU | VRAM | $/hr | Est. total | Notes |
+|----------|-----|------|------|------------|-------|
+| **QuickPod** | RTX 5080 | 16 GB | $0.16 | **~$0.50-1** | Best value. Blackwell, bf16. |
+| QuickPod | RTX PRO 4000 | 20 GB | $0.19 | ~$0.60-1 | Blackwell professional. |
+| QuickPod | A100 PCIe | 40 GB | $0.39 | ~$1-2 | Datacenter class, overkill but fast. |
+| QuickPod | RTX 5090 | 32 GB | $0.51 | ~$2-3 | Flagship consumer. |
+| QuickPod | RTX 6000 Ada | 48 GB | $0.56 | ~$2-3 | Professional Ada. |
+| Vast.ai | A100 (spot) | 40-80 GB | ~$0.60-0.80 | ~$2-3 | Interruptible. |
+| Lambda Labs | A100 80GB | 80 GB | $1.29 | ~$4-8 | Reliable, reserved available. |
+| RunPod | A100 80GB | 80 GB | $1.39 | ~$4-8 | Per-second billing. |
 
-Avoid Google Colab — sessions disconnect after 3-5 hours, no SSH, awkward
-data transfer, and A100 burns ~15 compute units/hr.
+Prices as of July 2026.
+
+### GPU compatibility
+
+Any GPU with **Ampere or newer** architecture and **12+ GB VRAM** works:
+
+| Architecture | GPUs | bf16 | Precision flag |
+|-------------|------|------|----------------|
+| Blackwell (2025) | RTX 5060 Ti/5070 Ti/5080/5090, PRO 4000 | Yes | `--precision bf16-mixed` |
+| Ada Lovelace (2023) | RTX 4070 Super, L40S, RTX 6000 Ada | Yes | `--precision bf16-mixed` |
+| Ampere (2021) | A100, A40, A10, RTX 3080, A4000, A2000 | Yes | `--precision bf16-mixed` |
+| Volta (2018) | V100 | **No** | `--precision 16-mixed` |
+| Turing (2019) | T4 | **No** | Avoid — very slow for training |
+
+For 12 GB GPUs (RTX 3080, 4070 Super, A2000), use `--batch-size 4`.
+For 16+ GB GPUs, `--batch-size 8` (default) works fine.
+
+### Avoid
+
+- **AWS/GCP/Azure** — same hardware at 5-10x the price.
+- **Google Colab** — sessions disconnect after 3-5 hours, no SSH, awkward
+  data transfer, A100 burns ~15 compute units/hr.
+- **T4** — inference GPU, very slow for training (12-24h+).
 
 ## Step-by-step (cloud GPU)
 
 ### 1. Launch an instance
 
-On Lambda Labs or RunPod, launch a single A100 instance with:
+Launch a single-GPU instance (e.g. RTX 5080 on QuickPod, or A100 on
+Vast.ai/Lambda/RunPod) with:
 - **OS:** Ubuntu 22.04 or 24.04 (pre-installed)
-- **GPU:** 1x A100 80GB (or H100 if available at similar price)
+- **GPU:** 1x (see table above)
 - **Storage:** 100 GB (dataset is ~30 GB, plus model + checkpoints)
 
 Note the instance IP address for SSH.
@@ -529,7 +555,7 @@ python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8
 ## Quick reference: full sequence of commands (Option A — cloud GPU)
 
 ```bash
-# On the cloud instance (SSH in first)
+# On the cloud instance (SSH in first — e.g. QuickPod RTX 5080 at $0.16/hr)
 git clone https://github.com/pgarciaq/chant-omr.git && cd chant-omr
 python3 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -e ".[dev]"
@@ -537,7 +563,7 @@ pip install --upgrade pip && pip install -e ".[dev]"
 # On your LAPTOP (transfer dataset):
 rsync -avz --progress data/gregobase/ data/rendered/ data/tokenizer/ ubuntu@INSTANCE_IP:~/chant-omr/data/
 
-# On the cloud instance (train):
+# On the cloud instance (train — use 16-mixed for V100, bf16-mixed for everything else):
 tmux new -s train
 source .venv/bin/activate
 python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
