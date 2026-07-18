@@ -68,6 +68,18 @@ Disk space needed: **~15 GB** (dataset ~2 GB, venv ~6 GB, checkpoints ~3 GB,
 code + logs ~1 GB).  QuickPod default is 30 GB — just enough; no need to
 increase it.
 
+### Known QuickPod constraints
+
+| Constraint | Impact | Workaround (already in default config) |
+|------------|--------|----------------------------------------|
+| `/dev/shm` too small, `mount -o remount` denied | PyTorch DataLoader multiprocessing crashes with "No space left on device" | `num_workers: 0` in config (loads data in main process) |
+| 16 GB VRAM (RTX 5080/5090) | `batch_size: 8` OOMs during encoder forward pass | `batch_size: 4` + `accumulate_grad_batches: 2` (effective batch = 8) |
+| Python 3.10 only | ChantOMR requires `>=3.11` | Install Python 3.13 from deadsnakes PPA (step 3) |
+| SSH on port 34200 | Standard rsync/scp commands fail | Pass `-p 34200` / `-P 34200` / `-e 'ssh -p 34200'` |
+
+All workarounds are already applied in `configs/default.yaml`.  No manual
+config edits needed — just `git pull` and run.
+
 ### 1. Create a pod
 
 On [console.quickpod.io](https://console.quickpod.io/):
@@ -126,7 +138,17 @@ rsync -avz --progress -e 'ssh -p 34200' \
 
 The dataset is ~2 GB and transfers in 1-3 minutes.
 
-### 5. Smoke test
+### 5. Set num_workers to 0
+
+QuickPod containers have a tiny `/dev/shm` and block `mount -o remount`,
+so PyTorch multiprocessing DataLoader crashes.  The default config already
+has `num_workers: 0`, but if you had previously changed it:
+
+```bash
+sed -i 's/num_workers: [0-9]*/num_workers: 0/' configs/default.yaml
+```
+
+### 6. Smoke test
 
 ```bash
 python scripts/train.py \
@@ -138,7 +160,10 @@ python scripts/train.py \
 
 Verify loss decreases.  Check GPU utilization: `nvidia-smi`.
 
-### 6. Full training run
+### 7. Full training run
+
+The default config uses `batch_size: 4` with `accumulate_grad_batches: 2`
+(effective batch size 8), which fits in 16 GB VRAM.  No overrides needed:
 
 ```bash
 tmux new -s train
@@ -146,16 +171,14 @@ source .venv/bin/activate
 python scripts/train.py \
   --accelerator cuda \
   --precision bf16-mixed \
-  --batch-size 8 \
   --epochs 50
 ```
 
 Use `tmux` so the training survives SSH disconnections.
 
-With an RTX 5080/5090 and batch size 8, expect **3-6 hours**.
-Try `--batch-size 16` if GPU memory allows (16+ GB should handle it).
+With an RTX 5080/5090, expect **4-7 hours**.
 
-### 7. Copy the best checkpoint back
+### 8. Copy the best checkpoint back
 
 From your **laptop**, pull the best checkpoint (note the `-P 34200` for scp):
 
@@ -588,10 +611,11 @@ pip install --upgrade pip && pip install -e ".[dev]"
 rsync -avz --progress -e 'ssh -p 34200' \
   data/gregobase/ data/rendered/ data/tokenizer/ root@INSTANCE_IP:~/chant-omr/data/
 
-# On the pod (train — use bf16-mixed for Blackwell/Ada/Ampere GPUs):
+# On the pod (set num_workers: 0 if not already, then train):
+sed -i 's/num_workers: [0-9]*/num_workers: 0/' configs/default.yaml
 tmux new -s train
 source .venv/bin/activate
-python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
+python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs 50
 
 # On your LAPTOP (copy best checkpoint back, then TERMINATE the pod):
 scp -P 34200 root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
