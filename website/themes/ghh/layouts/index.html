@@ -1,0 +1,429 @@
+{{ define "main" }}
+
+<!-- ===== Navigation ===== -->
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">ChantOMR</a>
+    <ul class="nav-links">
+      <li><a href="{{ "docs/" | relURL }}">Docs</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#pipeline">Pipeline</a></li>
+      <li><a href="#approach">Why ChantOMR?</a></li>
+      <li><a href="#metrics">Metrics</a></li>
+      <li><a href="#start">Get Started</a></li>
+      <li><a href="{{ .Site.Params.githubRepo }}" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<section class="hero" id="top">
+  <div class="hero-inner">
+    <h1>Chant<span class="accent">OMR</span></h1>
+    <p class="tagline">End-to-end Optical Music Recognition for Gregorian chant</p>
+    <p class="description">
+      A specialist deep learning model that converts photographs of historical
+      chant manuscripts&mdash;antiphonaries, graduals, hymnals&mdash;into
+      machine-readable <a href="https://gregorio-project.github.io/gabc/" style="color: var(--red-staff);">GABC</a> notation.
+      Built on a ConvNeXt-V2 encoder and Transformer decoder, trained on
+      20,000 GregoBase scores, and deployable via OpenVINO on Intel hardware.
+    </p>
+    <div class="hero-buttons">
+      <a href="#start" class="btn btn-primary">
+        Get Started
+      </a>
+      <a href="{{ .Site.Params.githubRepo }}" class="btn btn-secondary" target="_blank">
+        View on GitHub
+      </a>
+    </div>
+    <div class="hero-image">
+      <img src="{{ "images/hero_score.jpg" | relURL }}" alt="A Gregorian chant score rendered in square notation with red four-line staff and black neumes — the type of notation ChantOMR is trained to recognize">
+    </div>
+  </div>
+</section>
+
+<!-- ===== Features ===== -->
+<section class="section-alt" id="features">
+  <div class="section-inner">
+    <h2 class="section-title">What It Does</h2>
+    <p class="section-subtitle">
+      A ~59M parameter vision-encoder-decoder model purpose-built for
+      Gregorian square notation. Not a general-purpose sheet music recognizer&mdash;a
+      specialist that understands neumes, clefs, and four-line staves.
+    </p>
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <span class="feature-icon">&#127926;</span>
+        <h3>Photograph to Notation</h3>
+        <p>
+          Feed a photograph of a chant page, get structured GABC notation
+          ready to typeset with Gregorio or import into chant databases.
+          No manual transcription needed.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#9830;</span>
+        <h3>Square Notation Specialist</h3>
+        <p>
+          Purpose-built for Gregorian neumes on four-line staves&mdash;punctum,
+          podatus, clivis, torculus, porrectus, and their variants. Not a
+          repurposed modern-notation or general VLM model.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#128218;</span>
+        <h3>Synthetic Training Data</h3>
+        <p>
+          Trained on ~20,000 chants from GregoBase, rendered to PNG by
+          Gregorio + LuaLaTeX. CC0 data, fully reproducible pipeline,
+          no manual annotation required.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#127912;</span>
+        <h3>Domain Augmentation</h3>
+        <p>
+          On-the-fly aging transforms bridge the gap between clean renders
+          and real manuscripts: parchment texture, foxing, ink fade,
+          perspective skew, and JPEG compression artifacts.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#9889;</span>
+        <h3>OpenVINO Deployment</h3>
+        <p>
+          Export the trained model to OpenVINO IR format for fast inference
+          on Intel CPUs, Arc GPUs, and NPUs&mdash;no PyTorch runtime needed.
+          Model published on HuggingFace.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#128279;</span>
+        <h3>ghh Integration</h3>
+        <p>
+          Plugs into Stage 12 of
+          <a href="{{ .Site.Params.ghhSite }}" style="color: var(--red-staff);">Guido's Helping Hand</a>&mdash;the
+          open-source pipeline that transforms smartphone photos of chant
+          books into searchable PDFs.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ===== Architecture ===== -->
+<section id="architecture">
+  <div class="section-inner">
+    <h2 class="section-title">Architecture</h2>
+    <p class="section-subtitle">
+      An end-to-end vision-encoder-decoder: the image goes in, GABC tokens come out.
+      No separate staff detection, segmentation, or symbol classification stages.
+    </p>
+
+    <div class="architecture-flow">
+      <div class="arch-stage">
+        <div class="arch-box">
+          <h3>Score Image</h3>
+          <p>Width 1050, variable height</p>
+        </div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-stage">
+        <div class="arch-box">
+          <h3>ConvNeXt-V2 Tiny</h3>
+          <p>ImageNet pretrained<br>28.6M params, dim=768</p>
+        </div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-stage">
+        <div class="arch-box">
+          <h3>2D Sinusoidal + MLP</h3>
+          <p>Position-aware projector<br>768 &rarr; 512</p>
+        </div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-stage">
+        <div class="arch-box">
+          <h3>Transformer Decoder</h3>
+          <p>8 layers, d=512, 8 heads<br>RoPE + KV cache</p>
+        </div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-stage">
+        <div class="arch-box">
+          <h3>GABC Tokens</h3>
+          <p>BPE tokenizer<br>~2000 vocabulary</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arch-example">
+      <div class="arch-example-inner">
+        <span class="arch-example-label">Example output</span>
+        <code>(c4) Ky(f)ri(gf)e(h) *() e(ixhi)l&eacute;(h)i(g)son.(f) (::)</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Pipeline ===== -->
+<section class="section-alt" id="pipeline">
+  <div class="section-inner">
+    <h2 class="section-title">Training Pipeline</h2>
+    <p class="section-subtitle">
+      From raw GABC corpus to deployed model in five stages.
+      Each stage is a CLI command&mdash;fully reproducible.
+    </p>
+
+    <div class="pipeline-stages pipeline-row">
+      <div class="stage-chip done"><span class="stage-dot"></span> 1&ensp;Download GABC</div>
+      <span class="pipeline-arrow">&rarr;</span>
+      <div class="stage-chip done"><span class="stage-dot"></span> 2&ensp;Render to PNG</div>
+      <span class="pipeline-arrow">&rarr;</span>
+      <div class="stage-chip done"><span class="stage-dot"></span> 3&ensp;Train Tokenizer</div>
+      <span class="pipeline-arrow">&rarr;</span>
+      <div class="stage-chip pending"><span class="stage-dot"></span> 4&ensp;Train Model</div>
+      <span class="pipeline-arrow">&rarr;</span>
+      <div class="stage-chip not-started"><span class="stage-dot"></span> 5&ensp;Export &amp; Publish</div>
+    </div>
+
+    <div class="pipeline-legend">
+      <span><span class="stage-dot" style="background: var(--green-done);"></span> Done</span>
+      <span><span class="stage-dot" style="background: var(--amber-pending);"></span> In progress</span>
+      <span><span class="stage-dot" style="background: transparent; border: 2px solid var(--gray-notstarted);"></span> Not started</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Why ChantOMR? ===== -->
+<section id="approach">
+  <div class="section-inner">
+    <h2 class="section-title">Why ChantOMR?</h2>
+    <p class="section-subtitle">
+      Design decisions that set this project apart from existing approaches.
+    </p>
+
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <h3>End-to-End, Not Pipeline</h3>
+        <p>
+          Classical OMR chains staff detection &rarr; symbol segmentation &rarr;
+          classification &rarr; assembly. Each stage propagates errors.
+          ChantOMR learns the full mapping from image to notation in one model.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>Specialist, Not VLM</h3>
+        <p>
+          General vision-language models (GPT-4o, Gemini) hallucinate
+          notation and lack GABC knowledge. ChantOMR is a 59M-parameter
+          specialist&mdash;1000x smaller, 100x faster, and domain-accurate.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>GABC, Not Volpiano</h3>
+        <p>
+          Volpiano strips melismas and omits rhythmic information.
+          <a href="https://gregorio-project.github.io/gabc/" style="color: var(--red-staff);">GABC</a>
+          preserves full neume structure, liquescence, episema, and text
+          alignment&mdash;and is typesetable by Gregorio.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>Synthetic + Augmented</h3>
+        <p>
+          No need for expensive manual annotation. Train on 20k GregoBase
+          chants rendered by Gregorio, then bridge the domain gap with
+          on-the-fly augmentation that simulates aged parchment.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>Variable-Height Input</h3>
+        <p>
+          Score strips vary in length. ChantOMR accepts variable-height
+          images (fixed width 1050) with a variable-size patch grid&mdash;no
+          padding, no cropping, no information loss.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>Intel-Native Deployment</h3>
+        <p>
+          Export to OpenVINO IR for inference on Intel Arc GPUs and NPUs.
+          Train on NVIDIA CUDA, deploy on Intel&mdash;no vendor lock-in
+          for the inference path.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ===== Metrics ===== -->
+<section class="section-dark" id="metrics">
+  <div class="section-inner">
+    <h2 class="section-title">Metrics &amp; Benchmarks</h2>
+    <p class="section-subtitle">
+      Target metrics for the v0 release. Evaluation on real manuscript scans
+      will follow once the model is trained and augmentation is production-ready.
+    </p>
+    <div class="roadmap-items">
+
+      <div class="roadmap-card">
+        <span class="roadmap-badge next">Target</span>
+        <h3>GABC Edit Distance</h3>
+        <p>
+          &lt; 30% character-level edit distance between predicted and
+          ground-truth GABC on real manuscript scans. Comparable to
+          Transcoda's 64% OMR-NED on modern notation.
+        </p>
+      </div>
+
+      <div class="roadmap-card">
+        <span class="roadmap-badge next">Target</span>
+        <h3>Neume Accuracy</h3>
+        <p>
+          &gt; 80% exact-match accuracy at the neume level: the correct
+          neume glyph on the correct pitch, in the correct position within
+          the syllable.
+        </p>
+      </div>
+
+      <div class="roadmap-card">
+        <span class="roadmap-badge next">Target</span>
+        <h3>Structural Validity</h3>
+        <p>
+          &gt; 95% of model outputs are syntactically valid GABC that
+          Gregorio can typeset without errors. Invalid output is worse
+          than slightly wrong output.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ===== Getting Started ===== -->
+<section id="start">
+  <div class="section-inner">
+    <h2 class="section-title">Getting Started</h2>
+    <p class="section-subtitle">
+      Two paths: use the trained model for inference, or train from scratch.
+    </p>
+    <div class="getting-started-content">
+      <ul class="install-steps">
+        <li>
+          <div>
+            <strong>Clone and install</strong><br>
+            <code>git clone https://github.com/pgarciaq/chant-omr.git</code><br>
+            <code>pip install -e ".[dev]"</code>
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Download the training corpus</strong><br>
+            <code>chant-omr download</code> fetches ~10,000 GABC files from
+            GregoBase (CC0). <code>chant-omr render</code> generates paired PNGs.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Train the model</strong><br>
+            <code>python scripts/train.py --accelerator cuda</code> on a cloud
+            GPU (RTX 5080 at $0.16/hr, ~$2-4 total). See the
+            <a href="{{ "docs/training-guide/" | relURL }}" style="color: var(--red-staff);">Training Guide</a>.
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Run inference</strong><br>
+            <code>chant-omr predict manuscript_page.png</code> decodes
+            a score image into GABC notation.
+          </div>
+        </li>
+      </ul>
+      <div class="code-block">
+        <span class="comment"># Clone the repository</span><br>
+        <span class="prompt">$</span> <span class="command">git clone https://github.com/pgarciaq/chant-omr.git</span><br>
+        <span class="prompt">$</span> <span class="command">cd chant-omr &amp;&amp; pip install -e ".[dev]"</span><br>
+        <br>
+        <span class="comment"># Download and render the training corpus</span><br>
+        <span class="prompt">$</span> <span class="command">chant-omr download</span><br>
+        <span class="prompt">$</span> <span class="command">chant-omr render</span><br>
+        <br>
+        <span class="comment"># Train on a CUDA GPU</span><br>
+        <span class="prompt">$</span> <span class="command">python scripts/train.py --accelerator cuda --precision bf16-mixed</span><br>
+        <br>
+        <span class="comment"># Run inference on a score image</span><br>
+        <span class="prompt">$</span> <span class="command">chant-omr predict manuscript_page.png</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Collaborate ===== -->
+<section class="section-alt" id="contact">
+  <div class="section-inner">
+    <h2 class="section-title">Collaborate</h2>
+    <p class="section-subtitle">
+      Whether you are a musicologist studying the <em>cantus</em> tradition,
+      a developer building OMR tools, or a conservationist preserving
+      endangered manuscripts&mdash;we would love to hear from you.
+    </p>
+    <div class="contact-grid">
+      <div class="contact-card">
+        <h3>Explore the Code</h3>
+        <p>
+          ChantOMR is free, open source, and MIT-licensed. Clone the
+          repository, train on your own data, or integrate the model
+          into your pipeline.
+        </p>
+        <a href="{{ .Site.Params.githubRepo }}" class="btn btn-primary" target="_blank">
+          GitHub Repository
+        </a>
+      </div>
+      <div class="contact-card">
+        <h3>Get in Touch</h3>
+        <p>
+          Have a manuscript collection to transcribe? Found a bug or want
+          to contribute? Open an issue on GitHub.
+        </p>
+        <a href="{{ .Site.Params.githubRepo }}/issues" class="btn btn-secondary" target="_blank">
+          Open an Issue
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer class="site-footer">
+  <p class="footer-quote">
+    &ldquo;Ut queant laxis resonare fibris&rdquo;&mdash;Guido d'Arezzo, c. 1025
+  </p>
+  <div class="footer-links">
+    <a href="{{ .Site.Params.githubRepo }}" target="_blank">GitHub</a>
+    <a href="{{ .Site.Params.ghhSite }}" target="_blank">Guido's Helping Hand</a>
+    <a href="{{ "docs/" | relURL }}">Documentation</a>
+    <a href="#top">Back to top</a>
+  </div>
+  <p class="footer-copy">
+    ChantOMR &copy; {{ now.Year }}
+    &middot; Part of the <a href="{{ .Site.Params.ghhSite }}">Guido's Helping Hand</a> ecosystem
+  </p>
+</footer>
+
+{{ end }}

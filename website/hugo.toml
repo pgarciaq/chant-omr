@@ -1,0 +1,14 @@
+baseURL = "https://pgarciaq.github.io/chant-omr/"
+languageCode = "en"
+title = "ChantOMR"
+theme = "ghh"
+publishDir = "../docs"
+
+disableKinds = ["taxonomy", "term"]
+
+[params]
+  description = "End-to-end Optical Music Recognition for Gregorian chant square notation"
+  githubRepo = "https://github.com/pgarciaq/chant-omr"
+  ghhRepo = "https://github.com/pgarciaq/ghh"
+  ghhSite = "https://pgarciaq.github.io/ghh/"
+  author = "Pedro García"
