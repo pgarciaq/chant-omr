@@ -370,6 +370,7 @@ def run_training(
         "devices": devices,
         "precision": resolved_precision,
         "gradient_clip_val": float(training_cfg.get("gradient_clip", 1.0)),
+        "accumulate_grad_batches": int(training_cfg.get("accumulate_grad_batches", 1)),
         "callbacks": [checkpoint_cb],
         "enable_progress_bar": True,
         "log_every_n_steps": 1,
