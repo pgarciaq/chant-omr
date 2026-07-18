@@ -2,8 +2,8 @@
 
 How to run the full training on an NVIDIA GPU.  Two paths are documented:
 
-- **Option A** — Cloud GPU rental (Lambda Labs, RunPod, etc.) — cheapest,
-  fastest to get started, ~$5-10 total.
+- **Option A** — Cloud GPU rental (QuickPod, Vast.ai, etc.) — cheapest,
+  fastest to get started, ~$2-4 total.
 - **Option B** — NVIDIA Grace Hopper (GH200) bare metal on RHEL 9 — for when
   you have access to dedicated hardware.
 
@@ -19,7 +19,8 @@ PyTorch pre-installed.  No driver setup needed — just SSH in, clone, and train
 ## Estimated cost
 
 The ChantOMR model is small (~56M params) and the dataset is ~20k images.
-Training takes **3-6 hours on a consumer/prosumer GPU**, costing under $5 total.
+Training takes **4-7 hours on a consumer/prosumer GPU** (batch_size 4 + gradient
+accumulation), costing under $4 total on QuickPod.
 
 ### Recommended providers and GPUs
 
@@ -49,7 +50,8 @@ Any GPU with **Ampere or newer** architecture and **12+ GB VRAM** works:
 | Turing (2019) | T4 | **No** | Avoid — very slow for training |
 
 For 12 GB GPUs (RTX 3080, 4070 Super, A2000), use `--batch-size 4`.
-For 16+ GB GPUs, `--batch-size 8` (default) works fine.
+For 16+ GB GPUs, the default config (`batch_size: 4` + `accumulate_grad_batches: 2`)
+works fine (effective batch size 8).  On 32+ GB GPUs you can use `--batch-size 8`.
 
 ### Avoid
 
@@ -460,17 +462,21 @@ Watch for:
 python scripts/train.py \
   --accelerator cuda \
   --precision bf16-mixed \
-  --batch-size 8 \
   --epochs 50
 ```
+
+The default config uses `batch_size: 4` + `accumulate_grad_batches: 2`
+(effective batch size 8).  On GH200 (96+ GB HBM), you can safely increase:
+`--batch-size 16` or even `--batch-size 32`.
 
 **Key parameters** (from `configs/default.yaml`):
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | `precision` | `bf16-mixed` | GH200 Hopper GPU has native bf16 support |
-| `batch_size` | 8 | Increase if GPU memory allows (GH200 has 96+ GB) |
+| `batch_size` | 4 | Effective 8 with `accumulate_grad_batches: 2`; increase on GH200 |
 | `epochs` | 50 | Adjust based on convergence |
+| `num_workers` | 0 | Safe for containers; set to 4-8 on bare metal |
 | `learning_rate` | 1e-4 | AdamW with cosine warmup |
 | `encoder_pretrained` | true | Uses ImageNet-pretrained ConvNeXt-V2 Tiny |
 
@@ -588,7 +594,7 @@ rsync -avz --progress data/gregobase/ data/rendered/ data/tokenizer/ you@gh200:~
 # Phase 4: Train (on the GH200)
 tmux new -s train
 source .venv/bin/activate
-python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
+python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs 50
 ```
 
 ## Quick reference: full sequence of commands (Option A — QuickPod)
