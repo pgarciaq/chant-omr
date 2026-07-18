@@ -58,33 +58,47 @@ For 16+ GB GPUs, `--batch-size 8` (default) works fine.
   data transfer, A100 burns ~15 compute units/hr.
 - **T4** — inference GPU, very slow for training (12-24h+).
 
-## Step-by-step (cloud GPU)
+## Step-by-step (QuickPod)
 
-### 1. Launch an instance
+QuickPod pods run **Ubuntu 22.04 (Jammy)** with **CUDA 13.2** pre-installed
+but only **Python 3.10** (which is too old — ChantOMR requires `>=3.11`).
+Install Python 3.13 from the deadsnakes PPA before creating the venv.
 
-Launch a single-GPU instance (e.g. RTX 5080 on QuickPod, or A100 on
-Vast.ai/Lambda/RunPod) with:
-- **OS:** Ubuntu 22.04 or 24.04 (pre-installed)
-- **GPU:** 1x (see table above)
-- **Storage:** 100 GB (dataset is ~30 GB, plus model + checkpoints)
+Disk space needed: **~15 GB** (dataset ~2 GB, venv ~6 GB, checkpoints ~3 GB,
+code + logs ~1 GB).  All QuickPod pods have hundreds of GB of storage.
 
-Note the instance IP address for SSH.
+### 1. Create a pod
+
+On [console.quickpod.io](https://console.quickpod.io/):
+
+1. Select a **GPU** — RTX 5080 ($0.16/hr) or RTX 5090 ($0.50/hr) recommended.
+2. Select any available **template** (PyTorch preferred, or vanilla Ubuntu).
+3. Click **Create**.  Note the SSH connection command from the pod dashboard.
 
 ### 2. SSH in and clone the repo
 
 ```bash
-ssh ubuntu@INSTANCE_IP
+ssh root@INSTANCE_IP -p PORT    # connection details from QuickPod dashboard
 git clone https://github.com/pgarciaq/chant-omr.git
 cd chant-omr
 ```
 
-### 3. Create venv and install dependencies
+### 3. Install Python 3.13 and create venv
 
-The instance comes with Python 3.11 or 3.12 and CUDA pre-installed.
-Both are supported by ChantOMR (`requires-python = ">=3.11,<3.14"`).
+QuickPod pods ship Python 3.10 which is too old.  Install 3.13 from
+deadsnakes (takes ~2 minutes):
 
 ```bash
-python3 -m venv .venv
+apt update && apt install software-properties-common -y
+add-apt-repository ppa:deadsnakes/ppa -y
+apt update
+apt install python3.13 python3.13-venv python3.13-dev -y
+```
+
+Create the venv with Python 3.13:
+
+```bash
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -e ".[dev]"
@@ -98,15 +112,18 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 ### 4. Transfer the dataset from your laptop
 
-From your **laptop** (not the cloud instance):
+From your **laptop** (not the pod).  QuickPod SSH uses a non-standard port,
+so pass `-e 'ssh -p PORT'` to rsync:
 
 ```bash
-rsync -avz --progress \
+rsync -avz --progress -e 'ssh -p PORT' \
   ~/dev/lpacleaner/chant-omr/data/gregobase/ \
   ~/dev/lpacleaner/chant-omr/data/rendered/ \
   ~/dev/lpacleaner/chant-omr/data/tokenizer/ \
-  ubuntu@INSTANCE_IP:~/chant-omr/data/
+  root@INSTANCE_IP:~/chant-omr/data/
 ```
+
+The dataset is ~2 GB and transfers in 1-3 minutes.
 
 ### 5. Smoke test
 
@@ -134,23 +151,21 @@ python scripts/train.py \
 
 Use `tmux` so the training survives SSH disconnections.
 
-With an A100 and batch size 8, expect ~2-4 hours.  Try `--batch-size 32`
-if GPU memory allows (A100 80GB should handle it).
+With an RTX 5080/5090 and batch size 8, expect **3-6 hours**.
+Try `--batch-size 16` if GPU memory allows (16+ GB should handle it).
 
 ### 7. Copy the best checkpoint back
 
-```bash
-# From the cloud instance
-scp checkpoints/chant-omr-epoch=*val_loss=*.ckpt \
-  you@laptop:~/dev/lpacleaner/chant-omr/checkpoints/
+From your **laptop**, pull the best checkpoint (note the `-P PORT` for scp):
 
-# Or from your laptop, pull it
-scp ubuntu@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
+```bash
+scp -P PORT \
+  root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
   ~/dev/lpacleaner/chant-omr/checkpoints/
 ```
 
 Copy the **1 best checkpoint** (lowest val_loss).  Then **terminate the
-instance** to stop billing.
+pod** from the QuickPod dashboard to stop billing.
 
 ---
 
@@ -552,23 +567,32 @@ source .venv/bin/activate
 python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
 ```
 
-## Quick reference: full sequence of commands (Option A — cloud GPU)
+## Quick reference: full sequence of commands (Option A — QuickPod)
 
 ```bash
-# On the cloud instance (SSH in first — e.g. QuickPod RTX 5080 at $0.16/hr)
+# On the pod (SSH in first — replace INSTANCE_IP and PORT from QuickPod dashboard)
+ssh root@INSTANCE_IP -p PORT
 git clone https://github.com/pgarciaq/chant-omr.git && cd chant-omr
-python3 -m venv .venv && source .venv/bin/activate
+
+# Install Python 3.13 (QuickPod ships 3.10 which is too old)
+apt update && apt install software-properties-common -y
+add-apt-repository ppa:deadsnakes/ppa -y && apt update
+apt install python3.13 python3.13-venv python3.13-dev -y
+
+# Create venv and install deps
+python3.13 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -e ".[dev]"
 
-# On your LAPTOP (transfer dataset):
-rsync -avz --progress data/gregobase/ data/rendered/ data/tokenizer/ ubuntu@INSTANCE_IP:~/chant-omr/data/
+# On your LAPTOP (transfer dataset — note -p PORT for rsync):
+rsync -avz --progress -e 'ssh -p PORT' \
+  data/gregobase/ data/rendered/ data/tokenizer/ root@INSTANCE_IP:~/chant-omr/data/
 
-# On the cloud instance (train — use 16-mixed for V100, bf16-mixed for everything else):
+# On the pod (train — use bf16-mixed for Blackwell/Ada/Ampere GPUs):
 tmux new -s train
 source .venv/bin/activate
 python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
 
-# On your LAPTOP (copy best checkpoint back, then TERMINATE the instance):
-scp ubuntu@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
+# On your LAPTOP (copy best checkpoint back, then TERMINATE the pod):
+scp -P PORT root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
   ~/dev/lpacleaner/chant-omr/checkpoints/
 ```
