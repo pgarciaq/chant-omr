@@ -65,7 +65,8 @@ but only **Python 3.10** (which is too old — ChantOMR requires `>=3.11`).
 Install Python 3.13 from the deadsnakes PPA before creating the venv.
 
 Disk space needed: **~15 GB** (dataset ~2 GB, venv ~6 GB, checkpoints ~3 GB,
-code + logs ~1 GB).  All QuickPod pods have hundreds of GB of storage.
+code + logs ~1 GB).  QuickPod default is 30 GB — just enough; no need to
+increase it.
 
 ### 1. Create a pod
 
@@ -78,7 +79,7 @@ On [console.quickpod.io](https://console.quickpod.io/):
 ### 2. SSH in and clone the repo
 
 ```bash
-ssh root@INSTANCE_IP -p PORT    # connection details from QuickPod dashboard
+ssh root@INSTANCE_IP -p 34200   # connection details from QuickPod dashboard
 git clone https://github.com/pgarciaq/chant-omr.git
 cd chant-omr
 ```
@@ -113,10 +114,10 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 ### 4. Transfer the dataset from your laptop
 
 From your **laptop** (not the pod).  QuickPod SSH uses a non-standard port,
-so pass `-e 'ssh -p PORT'` to rsync:
+so pass `-e 'ssh -p 34200'` to rsync:
 
 ```bash
-rsync -avz --progress -e 'ssh -p PORT' \
+rsync -avz --progress -e 'ssh -p 34200' \
   ~/dev/lpacleaner/chant-omr/data/gregobase/ \
   ~/dev/lpacleaner/chant-omr/data/rendered/ \
   ~/dev/lpacleaner/chant-omr/data/tokenizer/ \
@@ -156,10 +157,10 @@ Try `--batch-size 16` if GPU memory allows (16+ GB should handle it).
 
 ### 7. Copy the best checkpoint back
 
-From your **laptop**, pull the best checkpoint (note the `-P PORT` for scp):
+From your **laptop**, pull the best checkpoint (note the `-P 34200` for scp):
 
 ```bash
-scp -P PORT \
+scp -P 34200 \
   root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
   ~/dev/lpacleaner/chant-omr/checkpoints/
 ```
@@ -570,8 +571,8 @@ python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8
 ## Quick reference: full sequence of commands (Option A — QuickPod)
 
 ```bash
-# On the pod (SSH in first — replace INSTANCE_IP and PORT from QuickPod dashboard)
-ssh root@INSTANCE_IP -p PORT
+# On the pod (SSH in first — replace INSTANCE_IP from QuickPod dashboard)
+ssh root@INSTANCE_IP -p 34200
 git clone https://github.com/pgarciaq/chant-omr.git && cd chant-omr
 
 # Install Python 3.13 (QuickPod ships 3.10 which is too old)
@@ -583,8 +584,8 @@ apt install python3.13 python3.13-venv python3.13-dev -y
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -e ".[dev]"
 
-# On your LAPTOP (transfer dataset — note -p PORT for rsync):
-rsync -avz --progress -e 'ssh -p PORT' \
+# On your LAPTOP (transfer dataset):
+rsync -avz --progress -e 'ssh -p 34200' \
   data/gregobase/ data/rendered/ data/tokenizer/ root@INSTANCE_IP:~/chant-omr/data/
 
 # On the pod (train — use bf16-mixed for Blackwell/Ada/Ampere GPUs):
@@ -593,6 +594,6 @@ source .venv/bin/activate
 python scripts/train.py --accelerator cuda --precision bf16-mixed --batch-size 8 --epochs 50
 
 # On your LAPTOP (copy best checkpoint back, then TERMINATE the pod):
-scp -P PORT root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
+scp -P 34200 root@INSTANCE_IP:~/chant-omr/checkpoints/chant-omr-epoch=XX-val_loss=X.XXXX.ckpt \
   ~/dev/lpacleaner/chant-omr/checkpoints/
 ```
