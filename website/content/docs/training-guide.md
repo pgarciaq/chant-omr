@@ -9,16 +9,17 @@ This is a condensed version of the full
 
 ## Recommended: Cloud GPU (QuickPod)
 
-The cheapest path. The model is small (~59M params) and the dataset is ~20k
-images. Training costs **under $4 total**.
+The cheapest path. The model is ~59M params and the dataset is ~20k images.
+Training takes **~24 hours on a 16 GB GPU** and costs **~$4-12** depending
+on GPU and provider.
 
 ### GPU recommendations
 
 | GPU | $/hr | VRAM | Est. total |
 |-----|------|------|------------|
-| RTX 5080 | $0.16 | 16 GB | ~$0.50-1 |
-| RTX 5090 | $0.50 | 32 GB | ~$2-4 |
-| A100 PCIe | $0.39 | 40 GB | ~$1-2 |
+| RTX 5080 | $0.16 | 16 GB | ~$4 |
+| RTX 5090 | $0.50 | 32 GB | ~$6 |
+| A100 PCIe | $0.39 | 40 GB | ~$5-9 |
 
 Any GPU with **Ampere or newer** architecture and **16+ GB VRAM** works
 with the default config (`batch_size: 2`, `accumulate_grad_batches: 4`,

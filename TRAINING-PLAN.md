@@ -19,16 +19,16 @@ PyTorch pre-installed.  No driver setup needed — just SSH in, clone, and train
 ## Estimated cost
 
 The ChantOMR model is small (~56M params) and the dataset is ~20k images.
-Training takes **4-7 hours on a consumer/prosumer GPU** (batch_size 4 + gradient
-accumulation), costing under $4 total on QuickPod.
+Training takes **~24 hours on a 16 GB consumer GPU** (batch_size 2 + gradient
+accumulation × 4), costing **~$4-12** depending on GPU and provider.
 
 ### Recommended providers and GPUs
 
 | Provider | GPU | VRAM | $/hr | Est. total | Notes |
 |----------|-----|------|------|------------|-------|
-| **QuickPod** | RTX 5080 | 16 GB | $0.16 | **~$0.50-1** | Best value. Blackwell, bf16. |
-| QuickPod | RTX PRO 4000 | 20 GB | $0.19 | ~$0.60-1 | Blackwell professional. |
-| QuickPod | A100 PCIe | 40 GB | $0.39 | ~$1-2 | Datacenter class, overkill but fast. |
+| **QuickPod** | RTX 5080 | 16 GB | $0.16 | **~$4** | Best value. Blackwell, bf16. |
+| QuickPod | RTX PRO 4000 | 20 GB | $0.19 | ~$5 | Blackwell professional. |
+| QuickPod | A100 PCIe | 40 GB | $0.39 | ~$5-9 | Datacenter class, larger batch possible. |
 | QuickPod | RTX 5090 | 32 GB | $0.51 | ~$2-3 | Flagship consumer. |
 | QuickPod | RTX 6000 Ada | 48 GB | $0.56 | ~$2-3 | Professional Ada. |
 | Vast.ai | A100 (spot) | 40-80 GB | ~$0.60-0.80 | ~$2-3 | Interruptible. |
@@ -178,7 +178,8 @@ python scripts/train.py \
 
 Use `tmux` so the training survives SSH disconnections.
 
-With an RTX 5080/5090, expect **4-7 hours**.
+With an RTX 5080 (batch_size 2), expect **~24 hours**. An RTX 5090 (32 GB)
+can use batch_size 4-8, cutting time roughly in half.
 
 ### 8. Copy the best checkpoint back
 

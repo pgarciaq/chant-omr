@@ -68,8 +68,9 @@ from the &lt;code>timm&lt;/code> library, pretrained on ImageNet.&lt;/p>
 ImageNet-normalized (mean/std per channel).&lt;/p></description></item><item><title>Training Guide</title><link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid><description>&lt;p>This is a condensed version of the full
 &lt;a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md&lt;/a>.&lt;/p>
 &lt;h2 id="recommended-cloud-gpu-quickpod">Recommended: Cloud GPU (QuickPod)&lt;/h2>
-&lt;p>The cheapest path. The model is small (~59M params) and the dataset is ~20k
-images. Training costs &lt;strong>under $4 total&lt;/strong>.&lt;/p>
+&lt;p>The cheapest path. The model is ~59M params and the dataset is &lt;del>20k images.
+Training takes &lt;strong>~24 hours on a 16 GB GPU&lt;/strong> and costs **&lt;/del>$4-12** depending
+on GPU and provider.&lt;/p>
 &lt;h3 id="gpu-recommendations">GPU recommendations&lt;/h3>
 &lt;table>
  &lt;thead>
@@ -85,19 +86,19 @@ images. Training costs &lt;strong>under $4 total&lt;/strong>.&lt;/p>
  &lt;td>RTX 5080&lt;/td>
  &lt;td>$0.16&lt;/td>
  &lt;td>16 GB&lt;/td>
- &lt;td>~$0.50-1&lt;/td>
+ &lt;td>~$4&lt;/td>
  &lt;/tr>
  &lt;tr>
  &lt;td>RTX 5090&lt;/td>
  &lt;td>$0.50&lt;/td>
  &lt;td>32 GB&lt;/td>
- &lt;td>~$2-4&lt;/td>
+ &lt;td>~$6&lt;/td>
  &lt;/tr>
  &lt;tr>
  &lt;td>A100 PCIe&lt;/td>
  &lt;td>$0.39&lt;/td>
  &lt;td>40 GB&lt;/td>
- &lt;td>~$1-2&lt;/td>
+ &lt;td>~$5-9&lt;/td>
  &lt;/tr>
  &lt;/tbody>
 &lt;/table>
