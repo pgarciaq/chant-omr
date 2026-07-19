@@ -38,6 +38,12 @@ training:
   save_top_k: 3
   monitor: val_loss
 
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 10         # stop after 10 epochs with no val_loss improvement
+    min_delta: 0.001     # minimum change to qualify as improvement
+
 inference:
   beam_width: 3
   repetition_penalty: 1.1

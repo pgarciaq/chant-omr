@@ -311,7 +311,7 @@ def run_training(
 ) -> None:
     """Run a full Lightning training job."""
     from lightning.pytorch import Trainer
-    from lightning.pytorch.callbacks import ModelCheckpoint
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
     cfg = load_config(config_path)
     training_cfg = cfg.setdefault("training", {})
@@ -346,6 +346,23 @@ def run_training(
         mode="min",
     )
 
+    callbacks: list[Any] = [checkpoint_cb]
+
+    es_cfg = training_cfg.get("early_stopping", {})
+    if es_cfg.get("enabled", True):
+        early_stop_cb = EarlyStopping(
+            monitor="val_loss",
+            patience=int(es_cfg.get("patience", 10)),
+            min_delta=float(es_cfg.get("min_delta", 0.001)),
+            mode="min",
+            verbose=True,
+        )
+        callbacks.append(early_stop_cb)
+        print(
+            f"Early stopping: patience={early_stop_cb.patience}, "
+            f"min_delta={early_stop_cb.min_delta}"
+        )
+
     effective = _effective_accelerator(accelerator, gpus)
     if effective == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but torch.cuda.is_available() is False")
@@ -371,7 +388,7 @@ def run_training(
         "precision": resolved_precision,
         "gradient_clip_val": float(training_cfg.get("gradient_clip", 1.0)),
         "accumulate_grad_batches": int(training_cfg.get("accumulate_grad_batches", 1)),
-        "callbacks": [checkpoint_cb],
+        "callbacks": callbacks,
         "enable_progress_bar": True,
         "log_every_n_steps": 1,
     }
