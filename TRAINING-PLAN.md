@@ -555,6 +555,79 @@ verified, the GH200 copies can be deleted.
 
 ---
 
+## Phase 6: Re-train with domain augmentation (#30)
+
+The first training run uses clean, computer-rendered score images.  These
+look nothing like real manuscript photographs — the model overfits to
+synthetic appearance and struggles on real-world inputs.
+
+**Domain augmentation** (#30) applies 13 transforms during training to make
+clean renders look like aged manuscripts: parchment texture, foxing, ink
+fading, perspective skew, etc.  Augmentation is already enabled in
+`configs/default.yaml` (`augment: true`), so a `git pull` and re-train is
+all that's needed.
+
+### 6.1 Transfer texture patches
+
+The augmentation engine uses real parchment texture patches from
+`data/textures/`.  Transfer them along with the dataset:
+
+```bash
+# From your LAPTOP:
+rsync -avz --progress -e 'ssh -p 34200' \
+  ~/dev/lpacleaner/chant-omr/data/textures/ \
+  root@INSTANCE_IP:~/chant-omr/data/textures/
+```
+
+### 6.2 Re-train
+
+Same procedure as Phase 4 / step 7, but now the training loop automatically
+augments each image on-the-fly (training set only — validation stays clean):
+
+```bash
+tmux new -s train
+source .venv/bin/activate
+git pull   # pick up augmentation code + config changes
+python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs 50
+```
+
+### 6.3 Evaluate: baseline vs grammar-constrained
+
+After training, run evaluation twice to measure the impact of both
+augmentation and grammar-constrained decoding (#37):
+
+```bash
+# Baseline (no grammar mask)
+chant-omr evaluate checkpoints/best.ckpt \
+  --test-split-only --device cuda
+
+# With grammar constraints
+chant-omr evaluate checkpoints/best.ckpt \
+  --test-split-only --device cuda --grammar-constrained
+```
+
+Compare against the first training run's results:
+
+| Metric | First training | Augmented (no grammar) | Augmented + grammar |
+|--------|---------------|----------------------|---------------------|
+| Mean GED | 0.0841 | ? | ? |
+| Neume accuracy | 92.95% | ? | ? |
+| Structural validity | 90.0% | ? | ? |
+
+**What to look for:**
+- **GED should decrease** (augmentation improves generalization)
+- **Neume accuracy should increase** (same reason)
+- **Structural validity should reach 95%+** with grammar constraints
+- If grammar constraints **hurt** GED or neume accuracy, open #57 (soft penalty mode)
+- If structural validity is still < 95% even with grammar constraints, open #56 (richer grammar rules)
+
+### 6.4 Copy the best checkpoint back
+
+Same as Phase 5.3 — copy the best checkpoint to your laptop, then terminate
+the pod.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
