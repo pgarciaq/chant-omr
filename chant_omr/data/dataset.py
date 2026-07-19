@@ -295,6 +295,7 @@ def build_datasets(
     min_body_len: int = DEFAULT_MIN_BODY_LEN,
     overfit_n: int | None = None,
     exclude_test_split: bool = True,
+    augmentation_config: AugmentationConfig | None = None,
 ) -> tuple[ChantOMRDataset, ChantOMRDataset]:
     """Discover pairs and return train/val datasets split by catalog id.
 
@@ -302,6 +303,9 @@ def build_datasets(
     belongs to the test split (``catalog_id % 20 == 0``) are removed before
     the train/val split.  This ensures the test set is never seen during
     training or validation.
+
+    Augmentation is applied to the **training** set only — validation always
+    sees clean images for consistent loss measurement.
     """
     samples = discover_rendered_pairs(rendered_dir, min_body_len=min_body_len)
     if exclude_test_split:
@@ -323,13 +327,17 @@ def build_datasets(
         val_samples = train_samples[:1]
     common = {
         "tokenizer": tokenizer,
-        "augment": augment,
         "target_width": target_width,
         "max_height": max_height,
     }
     return (
-        ChantOMRDataset(train_samples, **common),
-        ChantOMRDataset(val_samples, **common),
+        ChantOMRDataset(
+            train_samples,
+            augment=augment,
+            augmentation_config=augmentation_config,
+            **common,
+        ),
+        ChantOMRDataset(val_samples, augment=False, **common),
     )
 
 
@@ -384,13 +392,23 @@ def build_dataloaders_from_config(
     tokenizer_dir = Path(data_cfg.get("tokenizer_dir", "data/tokenizer/"))
     tok = tokenizer or GABCTokenizer.load(tokenizer_dir / TOKENIZER_FILENAME)
 
+    aug_config: AugmentationConfig | None = None
+    do_augment = bool(data_cfg.get("augment", False))
+    if do_augment:
+        aug_kwargs: dict = {}
+        texture_dir = data_cfg.get("texture_dir")
+        if texture_dir:
+            aug_kwargs["texture_dir"] = texture_dir
+        aug_config = AugmentationConfig(**aug_kwargs)
+
     train_ds, val_ds = build_datasets(
         rendered_dir,
         tok,
         train_fraction=float(data_cfg.get("train_split", DEFAULT_TRAIN_SPLIT)),
-        augment=bool(data_cfg.get("augment", False)),
+        augment=do_augment,
         target_width=int(data_cfg.get("target_width", DEFAULT_TARGET_WIDTH)),
         max_height=int(data_cfg.get("max_height", DEFAULT_MAX_HEIGHT)),
+        augmentation_config=aug_config,
     )
     return build_dataloaders(
         train_ds,

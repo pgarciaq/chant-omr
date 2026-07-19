@@ -8,8 +8,11 @@ data:
   val_split: 0.1
   target_width: 1050       # scale to this width; preserve aspect ratio
   max_height: 1600         # cap height after scaling (no portrait letterbox)
-  augment: false           # enable after #30 augmentation ships
-  num_workers: 0           # 0 for container safety (/dev/shm); increase on bare metal
+  augment: true            # domain augmentation (#30) — training set only
+  texture_dir: data/textures   # real parchment patches for texture overlay
+  num_workers: 0           # 0 for container safety (/dev/shm); set to 4 on bare metal or
+                           # VMs with sufficient shared memory. On containers, first run:
+                           #   mount -o remount,size=2G /dev/shm
 
 model:
   encoder_variant: convnextv2_tiny
