@@ -74,13 +74,23 @@ increase it.
 
 | Constraint | Impact | Workaround (already in default config) |
 |------------|--------|----------------------------------------|
-| `/dev/shm` too small, `mount -o remount` denied | PyTorch DataLoader multiprocessing crashes with "No space left on device" | `num_workers: 0` in config (loads data in main process) |
+| `/dev/shm` too small, `mount -o remount` denied | PyTorch DataLoader multiprocessing crashes with "No space left on device" | `file_system` sharing strategy in `scripts/train.py` (bypasses `/dev/shm` entirely) |
 | 16 GB VRAM (RTX 5080/5090) | `batch_size: 8` OOMs during encoder forward pass | `batch_size: 4` + `accumulate_grad_batches: 2` (effective batch = 8) |
 | Python 3.10 only | ChantOMR requires `>=3.11` | Install Python 3.13 from deadsnakes PPA (step 3) |
 | SSH on port 34200 | Standard rsync/scp commands fail | Pass `-p 34200` / `-P 34200` / `-e 'ssh -p 34200'` |
 
-All workarounds are already applied in `configs/default.yaml`.  No manual
-config edits needed — just `git pull` and run.
+All workarounds are already applied in `configs/default.yaml` and
+`scripts/train.py`.  No manual config edits needed — just `git pull` and run.
+
+> **Important: `num_workers` and augmentation performance.**  Domain
+> augmentation (#30) applies 13 CPU-bound OpenCV transforms per training
+> image.  With `num_workers: 0` (all work in the main process), the GPU
+> idles while the CPU augments each batch, causing **~4x slower epochs**
+> (~1 hour vs ~15 min).  The fix is `num_workers: 4` (default) combined
+> with `torch.multiprocessing.set_sharing_strategy("file_system")` in
+> `scripts/train.py`, which uses the container's main filesystem for
+> inter-process communication instead of the too-small `/dev/shm`.
+> This is already configured — no manual steps needed.
 
 ### 1. Create a pod
 
@@ -582,7 +592,12 @@ rsync -avz --progress -e 'ssh -p 34200' \
 ### 6.2 Re-train
 
 Same procedure as Phase 4 / step 7, but now the training loop automatically
-augments each image on-the-fly (training set only — validation stays clean):
+augments each image on-the-fly (training set only — validation stays clean).
+
+The `file_system` sharing strategy in `scripts/train.py` bypasses QuickPod's
+`/dev/shm` limit, allowing `num_workers: 4` (default) for parallel data
+loading.  Without this, augmentation causes ~4x slower epochs because the
+GPU idles while the CPU applies transforms sequentially.
 
 ```bash
 tmux new -s train
@@ -591,20 +606,29 @@ git pull   # pick up augmentation code + config changes
 python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs 50
 ```
 
+Expected epoch time: **~20-25 min** on RTX 5080 with augmentation and
+`num_workers: 4`.  Early stopping (patience=10) will halt training
+automatically when val_loss plateaus — expect **~12-20 hours total**.
+
 ### 6.3 Evaluate: baseline vs grammar-constrained
 
 After training, run evaluation twice to measure the impact of both
-augmentation and grammar-constrained decoding (#37):
+augmentation and grammar-constrained decoding (#37).  Add `--gregorio-check`
+(#46) for gold-standard structural validity via Gregorio compilation:
 
 ```bash
 # Baseline (no grammar mask)
 chant-omr evaluate checkpoints/best.ckpt \
-  --test-split-only --device cuda
+  --test-split-only --device cuda --gregorio-check
 
 # With grammar constraints
 chant-omr evaluate checkpoints/best.ckpt \
-  --test-split-only --device cuda --grammar-constrained
+  --test-split-only --device cuda --grammar-constrained --gregorio-check
 ```
+
+> Note: `--gregorio-check` requires `gregorio` (part of `texlive-binaries`).
+> If not installed on the GPU pod, you can run evaluation on your dev laptop
+> (slower but has `gregorio`), or omit the flag and use the regex-based check.
 
 Compare against the first training run's results:
 
@@ -612,13 +636,15 @@ Compare against the first training run's results:
 |--------|---------------|----------------------|---------------------|
 | Mean GED | 0.0841 | ? | ? |
 | Neume accuracy | 92.95% | ? | ? |
-| Structural validity | 90.0% | ? | ? |
+| Structural validity (regex) | 90.0% | ? | ? |
+| Structural validity (gregorio) | N/A | ? | ? |
 
 **What to look for:**
 - **GED should decrease** (augmentation improves generalization)
 - **Neume accuracy should increase** (same reason)
 - **Structural validity should reach 95%+** with grammar constraints
-- If grammar constraints **hurt** GED or neume accuracy, open #57 (soft penalty mode)
+- **Gregorio validity** is stricter than regex — expect it to be slightly lower
+- If grammar constraints **hurt** GED or neume accuracy, tune with #57 (soft penalty mode)
 - If structural validity is still < 95% even with grammar constraints, open #56 (richer grammar rules)
 
 ### 6.4 Copy the best checkpoint back
