@@ -190,7 +190,7 @@
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip done"><span class="stage-dot"></span> 3&ensp;Train Tokenizer</div>
       <span class="pipeline-arrow">&rarr;</span>
-      <div class="stage-chip pending"><span class="stage-dot"></span> 4&ensp;Train Model</div>
+      <div class="stage-chip done"><span class="stage-dot"></span> 4&ensp;Train Model</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 5&ensp;Export &amp; Publish</div>
     </div>
@@ -277,42 +277,48 @@
   <div class="section-inner">
     <h2 class="section-title">Metrics &amp; Benchmarks</h2>
     <p class="section-subtitle">
-      Target metrics for the v0 release. Evaluation on real manuscript scans
-      will follow once the model is trained and augmentation is production-ready.
+      First evaluation on the synthetic test split (clean rendered scores,
+      10 samples, beam_width=3). These results are on data the model never
+      trained on, but in the same visual domain as training.
     </p>
     <div class="roadmap-items">
 
       <div class="roadmap-card">
-        <span class="roadmap-badge next">Target</span>
+        <span class="roadmap-badge done">8.4%</span>
         <h3>GABC Edit Distance</h3>
         <p>
-          &lt; 30% character-level edit distance between predicted and
-          ground-truth GABC on real manuscript scans. Comparable to
-          Transcoda's 64% OMR-NED on modern notation.
+          8.4% mean normalized edit distance (target: &lt; 30%).
+          9 of 10 samples scored below 5%. One long-sequence outlier
+          at 66.5% due to likely max-length truncation.
         </p>
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge next">Target</span>
+        <span class="roadmap-badge done">92.9%</span>
         <h3>Neume Accuracy</h3>
         <p>
-          &gt; 80% exact-match accuracy at the neume level: the correct
-          neume glyph on the correct pitch, in the correct position within
-          the syllable.
+          92.9% mean neume-level accuracy (target: &gt; 80%).
+          7 of 10 samples at 94&ndash;100%. The model has learned
+          pitch, glyph shape, and syllable alignment.
         </p>
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge next">Target</span>
+        <span class="roadmap-badge next">90.0%</span>
         <h3>Structural Validity</h3>
         <p>
-          &gt; 95% of model outputs are syntactically valid GABC that
-          Gregorio can typeset without errors. Invalid output is worse
-          than slightly wrong output.
+          90% of outputs are syntactically valid GABC (target: &gt; 95%).
+          Grammar-constrained decoding and Gregorio compilation checks
+          will close this gap.
         </p>
       </div>
 
     </div>
+    <p style="margin-top: 2rem; font-size: 0.88rem; color: var(--parchment-dark);">
+      <strong>Caveat:</strong> evaluated on clean synthetic renders only.
+      Performance on real manuscript photographs will require domain
+      augmentation (parchment aging, foxing, ink fade) to bridge the gap.
+    </p>
   </div>
 </section>
 
