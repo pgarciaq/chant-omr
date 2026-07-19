@@ -480,11 +480,12 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
 
     if benchmark_dir is None:
         for candidate in ("benchmarks/", "data/rendered/"):
-            if Path(candidate).is_dir():
+            p = Path(candidate)
+            if p.is_dir() and any(p.rglob("*.png")):
                 benchmark_dir = candidate
                 break
         if benchmark_dir is None:
-            raise click.UsageError("No benchmark directory found. Use --benchmark-dir.")
+            raise click.UsageError("No benchmark directory with .png files found. Use --benchmark-dir.")
     click.echo(f"Benchmark dir: {benchmark_dir}", err=True)
 
     eval_start = __import__("time").monotonic()
