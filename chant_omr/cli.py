@@ -84,6 +84,12 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
     default=None,
     help="Override inference.grammar_constrained (balanced-paren mask)",
 )
+@click.option(
+    "--grammar-penalty",
+    type=float,
+    default=None,
+    help="Override inference.grammar_penalty (-inf = hard mask, e.g. -10.0 = soft)",
+)
 def predict(
     image_path,
     checkpoint_path,
@@ -97,6 +103,7 @@ def predict(
     output,
     dump_metrics,
     grammar_constrained,
+    grammar_penalty,
 ):
     """Run OMR on a single image and output GABC."""
     from pathlib import Path
@@ -114,6 +121,9 @@ def predict(
     if gc is None:
         gc = bool(infer_cfg.get("grammar_constrained", False))
 
+    gp_raw = infer_cfg.get("grammar_penalty", float("-inf"))
+    gp = grammar_penalty if grammar_penalty is not None else float(gp_raw)
+
     gabc = predict_gabc(
         Path(image_path),
         Path(checkpoint_path),
@@ -128,6 +138,7 @@ def predict(
             else infer_cfg.get("repetition_penalty", 1.1)
         ),
         grammar_constrained=gc,
+        grammar_penalty=gp,
         name=name,
         dump_metrics=dump_metrics,
     )
@@ -485,8 +496,15 @@ main.add_command(manifest)
     show_default=True,
     help="Enable balanced-paren grammar mask during decoding (#37)",
 )
+@click.option(
+    "--grammar-penalty",
+    type=float,
+    default=None,
+    help="Grammar penalty (-inf = hard mask, e.g. -10.0 = soft). Default from config.",
+)
 def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
-             repetition_penalty, limit, test_split_only, grammar_constrained):
+             repetition_penalty, limit, test_split_only, grammar_constrained,
+             grammar_penalty):
     """Evaluate model on benchmark (image, GABC) pairs (#14)."""
     from pathlib import Path
 
@@ -518,6 +536,12 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
             err=True,
         )
 
+    if grammar_penalty is None:
+        import yaml
+        with Path(config).open(encoding="utf-8") as fh:
+            _cfg = yaml.safe_load(fh) or {}
+        grammar_penalty = float(_cfg.get("inference", {}).get("grammar_penalty", float("-inf")))
+
     report = evaluate_checkpoint(
         Path(checkpoint),
         Path(benchmark_dir),
@@ -527,6 +551,7 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
         grammar_constrained=grammar_constrained,
+        grammar_penalty=grammar_penalty,
         limit=limit,
         test_split_only=test_split_only,
         progress_callback=_progress,

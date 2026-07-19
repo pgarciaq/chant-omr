@@ -37,6 +37,7 @@ class DecodeConfig:
     max_length: int = 2048
     repetition_penalty: float = 1.0
     grammar_constrained: bool = False
+    grammar_penalty: float = float("-inf")
 
 
 def apply_repetition_penalty(
@@ -305,7 +306,10 @@ def decode_token_ids(
     gm: GrammarMask | None = None
     if config.grammar_constrained:
         paren_table = build_paren_table(tokenizer)
-        gm = GrammarMask(paren_table, tokenizer.eos_id, tokenizer.vocab_size)
+        gm = GrammarMask(
+            paren_table, tokenizer.eos_id, tokenizer.vocab_size,
+            penalty=config.grammar_penalty,
+        )
 
     with torch.inference_mode():
         memory = model.encode(pixel_values)

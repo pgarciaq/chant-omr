@@ -20,7 +20,7 @@ import torch
 
 from chant_omr.model.tokenizer import GABCTokenizer
 
-NEG_INF = float("-inf")
+DEFAULT_GRAMMAR_PENALTY = float("-inf")
 
 
 @dataclass(frozen=True)
@@ -86,19 +86,25 @@ class GrammarMask:
         paren_table: list[TokenParenInfo],
         eos_token_id: int,
         vocab_size: int,
+        penalty: float = DEFAULT_GRAMMAR_PENALTY,
     ):
         self._table = paren_table
         self._eos_id = eos_token_id
         self._vocab_size = vocab_size
+        self._penalty = penalty
         self._depth = 0
 
     @property
     def depth(self) -> int:
         return self._depth
 
+    @property
+    def penalty(self) -> float:
+        return self._penalty
+
     def clone(self) -> GrammarMask:
         """Create an independent copy (for beam search branching)."""
-        copy = GrammarMask(self._table, self._eos_id, self._vocab_size)
+        copy = GrammarMask(self._table, self._eos_id, self._vocab_size, self._penalty)
         copy._depth = self._depth
         return copy
 
@@ -109,7 +115,13 @@ class GrammarMask:
             self._depth = max(0, self._depth)
 
     def get_mask(self, device: torch.device | None = None) -> torch.Tensor:
-        """Return ``(vocab_size,)`` additive mask: 0.0 = allowed, -inf = forbidden."""
+        """Return ``(vocab_size,)`` additive logit mask.
+
+        Allowed tokens get ``0.0``; forbidden tokens get ``self._penalty``
+        (default ``-inf`` for hard masking, or a finite negative value like
+        ``-10.0`` for soft penalty mode — see #57).
+        """
+        p = self._penalty
         mask = torch.zeros(self._vocab_size, device=device)
         for tid in range(self._vocab_size):
             if tid >= len(self._table):
@@ -117,30 +129,21 @@ class GrammarMask:
             info = self._table[tid]
 
             # Rule 1: token's closes must not exceed current depth
-            # (check min_running: the depth must never go negative mid-token)
             if self._depth + info.min_running < 0:
-                mask[tid] = NEG_INF
+                mask[tid] = p
                 continue
 
-            # Rule 2: no nested opens — if depth > 0 (inside parens) and
-            # token opens more parens, forbid it. Exception: if the token
-            # also fully closes before re-opening (e.g. ")("), allow it.
+            # Rule 2: no nested opens (exception: balanced tokens like ")(")
             if self._depth > 0 and info.opens > 0:
-                # A token like ")(" is OK at depth 1: it closes, then opens.
-                # But "((" at depth 1 is nested. Check if any open happens
-                # while already at depth > 0. We approximate: if the token's
-                # min_running never drops to 0 (meaning it never fully closed
-                # before opening again), and it has opens, that's nesting.
                 if self._depth + info.min_running > 0 and info.opens > 0:
-                    mask[tid] = NEG_INF
+                    mask[tid] = p
                     continue
 
             # Rule 3: EOS only when depth == 0
             if tid == self._eos_id and self._depth + info.net_delta != 0:
-                mask[tid] = NEG_INF
+                mask[tid] = p
 
-        # Rule 3 (also): forbid EOS directly if depth > 0 and token is EOS
         if self._depth > 0:
-            mask[self._eos_id] = NEG_INF
+            mask[self._eos_id] = p
 
         return mask

@@ -52,3 +52,4 @@ inference:
   repetition_penalty: 1.1
   max_length: 2048
   grammar_constrained: false  # balanced-paren mask (#37); opt-in
+  grammar_penalty: -inf       # -inf = hard mask; finite (e.g. -10.0) = soft penalty (#57)

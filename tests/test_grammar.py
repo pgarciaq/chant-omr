@@ -1,13 +1,15 @@
-"""Tests for grammar-constrained decoding (#37)."""
+"""Tests for grammar-constrained decoding (#37, #57)."""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 import torch
 
 from chant_omr.inference.grammar import (
+    DEFAULT_GRAMMAR_PENALTY,
     GrammarMask,
     TokenParenInfo,
     _analyse_token_string,
@@ -285,3 +287,76 @@ class TestBeamSearchDecodeWithGrammar:
             elif ch == ")":
                 depth -= 1
             assert depth >= 0, f"negative depth in: {decoded}"
+
+
+class TestSoftPenaltyMode:
+    """Soft penalty (#57): finite negative penalty instead of -inf."""
+
+    @pytest.fixture
+    def simple_table(self):
+        return [
+            TokenParenInfo(0, 0, 0, 0),   # 0: pad
+            TokenParenInfo(0, 0, 0, 0),   # 1: bos
+            TokenParenInfo(0, 0, 0, 0),   # 2: eos
+            TokenParenInfo(1, 0, 1, 0),   # 3: "("
+            TokenParenInfo(0, 1, -1, -1), # 4: ")"
+            TokenParenInfo(0, 0, 0, 0),   # 5: "abc"
+        ]
+
+    def test_default_penalty_is_neg_inf(self):
+        assert math.isinf(DEFAULT_GRAMMAR_PENALTY) and DEFAULT_GRAMMAR_PENALTY < 0
+
+    def test_hard_mask_uses_neg_inf(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6)
+        mask = gm.get_mask()
+        assert mask[4].item() == NEG_INF
+
+    def test_soft_penalty_uses_finite_value(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-10.0)
+        mask = gm.get_mask()
+        assert mask[4].item() == -10.0
+        assert mask[3].item() == 0.0
+
+    def test_soft_penalty_on_eos_at_depth_one(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-5.0)
+        gm.update(3)  # "(" -> depth 1
+        mask = gm.get_mask()
+        assert mask[2].item() == -5.0
+
+    def test_soft_penalty_on_nested_open(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-20.0)
+        gm.update(3)  # depth 1
+        mask = gm.get_mask()
+        assert mask[3].item() == -20.0
+
+    def test_clone_preserves_penalty(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-7.5)
+        clone = gm.clone()
+        assert clone.penalty == -7.5
+
+    def test_penalty_property(self, simple_table):
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-3.0)
+        assert gm.penalty == -3.0
+
+    def test_soft_penalty_allows_override_by_strong_logit(self, simple_table):
+        """With soft penalty, a confident model can still pick the penalized token."""
+        gm = GrammarMask(simple_table, eos_token_id=2, vocab_size=6, penalty=-5.0)
+        logits = torch.zeros(6)
+        logits[4] = 100.0
+        penalized = logits + gm.get_mask()
+        assert penalized[4].item() == 95.0
+        assert torch.argmax(penalized).item() == 4
+
+
+class TestDecodeConfigGrammarPenalty:
+    """DecodeConfig carries grammar_penalty to GrammarMask."""
+
+    def test_default_is_neg_inf(self):
+        from chant_omr.inference.beam_search import DecodeConfig
+        cfg = DecodeConfig()
+        assert math.isinf(cfg.grammar_penalty) and cfg.grammar_penalty < 0
+
+    def test_custom_penalty(self):
+        from chant_omr.inference.beam_search import DecodeConfig
+        cfg = DecodeConfig(grammar_constrained=True, grammar_penalty=-10.0)
+        assert cfg.grammar_penalty == -10.0
