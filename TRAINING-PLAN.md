@@ -74,7 +74,7 @@ increase it.
 
 | Constraint | Impact | Workaround (already in default config) |
 |------------|--------|----------------------------------------|
-| `/dev/shm` too small, `mount -o remount` denied | PyTorch DataLoader multiprocessing crashes with "No space left on device" | `file_system` sharing strategy in `scripts/train.py` (bypasses `/dev/shm` entirely) |
+| `/dev/shm` too small (64 MB default) | PyTorch DataLoader multiprocessing crashes with "No space left on device" | Use the custom **"Pytorch Latest-largeSHM"** template (see step 1 below) |
 | 16 GB VRAM (RTX 5080/5090) | `batch_size: 8` OOMs during encoder forward pass | `batch_size: 4` + `accumulate_grad_batches: 2` (effective batch = 8) |
 | Python 3.10 only | ChantOMR requires `>=3.11` | Install Python 3.13 from deadsnakes PPA (step 3) |
 | SSH on port 34200 | Standard rsync/scp commands fail | Pass `-p 34200` / `-P 34200` / `-e 'ssh -p 34200'` |
@@ -82,22 +82,38 @@ increase it.
 All workarounds are already applied in `configs/default.yaml` and
 `scripts/train.py`.  No manual config edits needed — just `git pull` and run.
 
-> **Important: `num_workers` and augmentation performance.**  Domain
-> augmentation (#30) applies 13 CPU-bound OpenCV transforms per training
-> image.  With `num_workers: 0` (all work in the main process), the GPU
-> idles while the CPU augments each batch, causing **~4x slower epochs**
-> (~1 hour vs ~15 min).  The fix is `num_workers: 4` (default) combined
-> with `torch.multiprocessing.set_sharing_strategy("file_system")` in
-> `scripts/train.py`, which uses the container's main filesystem for
-> inter-process communication instead of the too-small `/dev/shm`.
-> This is already configured — no manual steps needed.
+> **Important: `num_workers` and `/dev/shm`.**  Domain augmentation (#30)
+> applies 13 CPU-bound OpenCV transforms per training image.  With
+> `num_workers: 0` the GPU idles while the CPU augments each batch,
+> causing **~4x slower epochs** (~1 hour vs ~15 min).  The default
+> config uses `num_workers: 4`, but this requires `/dev/shm` ≥ 2 GB.
+> QuickPod's default templates only provide 64 MB.  **You must use the
+> custom template** (step 1) or training will crash or be very slow.
 
-### 1. Create a pod
+### 1. Create a pod with the custom template
 
 On [console.quickpod.io](https://console.quickpod.io/):
 
+**First time only — create the custom template:**
+
+1. Go to **Templates → Create New Template**
+2. Fill in:
+   - **Template Type**: GPU
+   - **Runtime**: Pod
+   - **Template Name**: `Pytorch Latest-largeSHM`
+   - **Docker Image Path**: `pytorch/pytorch:latest`
+   - **Disk Space**: `40` GB
+   - **Docker Options**: `--shm-size=2g`
+   - Leave all other fields at defaults (SSH Entry, etc.)
+3. Click **Create Template**
+
+This template gives the container 2 GB of `/dev/shm` (instead of 64 MB),
+which PyTorch DataLoader needs for `num_workers > 0`.
+
+**Then create the pod:**
+
 1. Select a **GPU** — RTX 5080 ($0.16/hr) or RTX 5090 ($0.50/hr) recommended.
-2. Select any available **template** (PyTorch preferred, or vanilla Ubuntu).
+2. Select your **"Pytorch Latest-largeSHM"** template.
 3. Click **Create**.  Note the SSH connection command from the pod dashboard.
 
 ### 2. SSH in and clone the repo
