@@ -13,6 +13,11 @@ from pathlib import Path
 
 from chant_omr.data.dataset import catalog_id_from_render_stem, is_test_split
 from chant_omr.data.gabc_parser import extract_gabc_body
+from chant_omr.evaluation.gregorio_roundtrip import (
+    GregorioCompilationResult,
+    check_gregorio_compilation,
+    gregorio_available,
+)
 from chant_omr.evaluation.metrics import (
     GEDResult,
     NeumeAccuracyResult,
@@ -35,6 +40,7 @@ class SampleResult:
     neume_acc: NeumeAccuracyResult
     validity: StructuralValidityResult
     elapsed_s: float
+    gregorio_check: GregorioCompilationResult | None = None
 
 
 @dataclass
@@ -86,6 +92,19 @@ class EvalReport:
             return 0.0
         valid = sum(1 for s in self.samples if s.validity.is_valid)
         return valid / len(self.samples)
+
+    @property
+    def gregorio_check_enabled(self) -> bool:
+        return any(s.gregorio_check is not None for s in self.samples)
+
+    @property
+    def gregorio_validity_rate(self) -> float | None:
+        """Fraction of samples that compile successfully with gregorio."""
+        checked = [s for s in self.samples if s.gregorio_check is not None]
+        if not checked:
+            return None
+        valid = sum(1 for s in checked if s.gregorio_check.compiles)
+        return valid / len(checked)
 
     @property
     def total_elapsed_s(self) -> float:
@@ -143,6 +162,7 @@ def evaluate_checkpoint(
     repetition_penalty: float = 1.1,
     grammar_constrained: bool = False,
     grammar_penalty: float = float("-inf"),
+    gregorio_check: bool = False,
     limit: int | None = None,
     test_split_only: bool = False,
     progress_callback: Callable[[int, int, Path, float], None] | None = None,
@@ -202,6 +222,10 @@ def evaluate_checkpoint(
         neume_acc = neume_accuracy(pred_body, ref_body)
         validity = check_structural_validity(pred_body)
 
+        greg_result = None
+        if gregorio_check:
+            greg_result = check_gregorio_compilation(pred_body)
+
         report.samples.append(SampleResult(
             image_path=img_path,
             ref_path=gabc_path,
@@ -211,6 +235,7 @@ def evaluate_checkpoint(
             neume_acc=neume_acc,
             validity=validity,
             elapsed_s=elapsed,
+            gregorio_check=greg_result,
         ))
 
         if progress_callback is not None:
@@ -239,6 +264,9 @@ def format_eval_report(report: EvalReport) -> str:
     lines.append(f"  Neume accuracy (mean):     {report.mean_neume_accuracy:.4f}")
     lines.append(f"  Neume accuracy (equiv):    {report.mean_neume_accuracy_norm:.4f}")
     lines.append(f"  Structural validity:       {report.structural_validity_rate:.1%}")
+    greg_rate = report.gregorio_validity_rate
+    if greg_rate is not None:
+        lines.append(f"  Gregorio compilation:      {greg_rate:.1%}")
     lines.append(f"  Total inference time:      {report.total_elapsed_s:.1f}s")
     lines.append(
         f"  Mean time per sample:      {report.total_elapsed_s / report.count:.2f}s"
@@ -246,10 +274,12 @@ def format_eval_report(report: EvalReport) -> str:
 
     lines.append("")
     lines.append("Per-sample results:")
-    lines.append(
-        f"{'Sample':<40} {'GED':>6} {'GED~':>6} {'Neume%':>7} {'Neu~%':>7} {'Valid':>5}"
-    )
-    lines.append("-" * 73)
+    greg_col = report.gregorio_check_enabled
+    header = f"{'Sample':<40} {'GED':>6} {'GED~':>6} {'Neume%':>7} {'Neu~%':>7} {'Valid':>5}"
+    if greg_col:
+        header += f" {'Greg':>5}"
+    lines.append(header)
+    lines.append("-" * (73 + (6 if greg_col else 0)))
     for s in report.samples:
         name = s.image_path.name
         if len(name) > 38:
@@ -264,11 +294,30 @@ def format_eval_report(report: EvalReport) -> str:
             if s.neume_acc.norm_accuracy is not None
             else "   N/A"
         )
-        lines.append(
+        row = (
             f"{name:<40} {s.ged.normalized:>6.3f} {ged_n} "
             f"{s.neume_acc.accuracy:>6.1%} {neume_n} "
             f"{'yes' if s.validity.is_valid else 'NO':>5}"
         )
+        if greg_col:
+            if s.gregorio_check is not None:
+                row += f" {'yes' if s.gregorio_check.compiles else 'NO':>5}"
+            else:
+                row += "   N/A"
+        lines.append(row)
+
+    if greg_col:
+        greg_failures = [
+            s for s in report.samples
+            if s.gregorio_check is not None and not s.gregorio_check.compiles
+        ]
+        if greg_failures:
+            lines.append("")
+            lines.append(f"Gregorio compilation failures ({len(greg_failures)}):")
+            for s in greg_failures:
+                lines.append(f"  {s.image_path.name}:")
+                for err in s.gregorio_check.errors:
+                    lines.append(f"    {err}")
 
     if report.skipped:
         lines.append("")

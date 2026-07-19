@@ -1,8 +1,12 @@
-"""Gregorio round-trip equivalence checker (#47, Option D).
+"""Gregorio round-trip equivalence checker and compilation validator (#46, #47).
 
 Compiles GABC snippets with ``gregorio -s -S`` (stdin→stdout) and compares
 the canonical ``.gtex`` output.  Two GABC strings are considered equivalent
 if and only if Gregorio produces the same note-level TeX commands for both.
+
+Also provides :func:`check_gregorio_compilation` for structural validity
+checking (#46): returns whether Gregorio can compile the GABC without
+errors on stdout or stderr.
 
 Falls back gracefully when ``gregorio`` is not installed — all comparisons
 return *not equivalent*, and callers fall back to the string-level table.
@@ -24,6 +28,7 @@ import logging
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 log = logging.getLogger(__name__)
@@ -33,6 +38,15 @@ _GREGORIO_BIN: str | None = shutil.which("gregorio")
 # Transient metadata stripped before comparison:
 _SCORE_HASH_RE = re.compile(r"\\GreBeginScore\{[0-9a-f]+\}")
 _API_VERSION_RE = re.compile(r"\\GregorioTeXAPIVersion\{[^}]+\}")
+
+
+@dataclass(frozen=True)
+class GregorioResult:
+    """Raw result from a single ``gregorio`` invocation."""
+
+    gtex: str | None
+    stderr: str
+    returncode: int
 
 
 def gregorio_available() -> bool:
@@ -58,15 +72,15 @@ def gregorio_version() -> str | None:
 
 
 @lru_cache(maxsize=4096)
-def _compile_gabc_body(gabc_body: str) -> str | None:
-    """Compile a GABC body to ``.gtex`` via ``gregorio -S`` (stdout).
+def _run_gregorio(gabc_body: str) -> GregorioResult:
+    """Run ``gregorio -s -S`` on a GABC body and return the full result.
 
-    Uses ``-S`` to write to stdout (avoids kpathsea write restrictions).
-    Returns the canonical ``.gtex`` content with metadata stripped, or None
-    on compilation failure.  Results are cached by input string.
+    Wraps the body in a minimal GABC document, compiles via stdin/stdout
+    (avoids kpathsea write restrictions), and returns stdout (``.gtex``),
+    stderr (warnings/errors), and the exit code.  Results are cached.
     """
     if not _GREGORIO_BIN:
-        return None
+        return GregorioResult(gtex=None, stderr="gregorio not installed", returncode=-1)
 
     gabc_doc = f"name:__norm__;\n%%\n{gabc_body}\n"
 
@@ -79,13 +93,22 @@ def _compile_gabc_body(gabc_body: str) -> str | None:
             timeout=5,
             check=False,
         )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
+    except subprocess.TimeoutExpired:
+        return GregorioResult(gtex=None, stderr="gregorio timed out", returncode=-1)
+    except OSError as exc:
+        return GregorioResult(gtex=None, stderr=str(exc), returncode=-1)
 
-    if not result.stdout:
-        return None
+    gtex = _canonicalize_gtex(result.stdout) if result.stdout else None
+    return GregorioResult(gtex=gtex, stderr=result.stderr.strip(), returncode=result.returncode)
 
-    return _canonicalize_gtex(result.stdout)
+
+def _compile_gabc_body(gabc_body: str) -> str | None:
+    """Compile a GABC body to ``.gtex`` via ``gregorio -S`` (stdout).
+
+    Returns the canonical ``.gtex`` content with metadata stripped, or None
+    on compilation failure.  Thin wrapper around :func:`_run_gregorio`.
+    """
+    return _run_gregorio(gabc_body).gtex
 
 
 def _canonicalize_gtex(raw: str) -> str:
@@ -154,3 +177,51 @@ def gregorio_bodies_equivalent(body_a: str, body_b: str) -> bool:
         return False
 
     return gtex_a == gtex_b
+
+
+# ---------------------------------------------------------------------------
+# Gregorio compilation check (#46)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GregorioCompilationResult:
+    """Result of compiling a GABC body with ``gregorio`` for validity."""
+
+    compiles: bool
+    errors: list[str] = field(default_factory=list)
+
+
+def check_gregorio_compilation(gabc_body: str) -> GregorioCompilationResult:
+    """Check whether ``gregorio`` can compile a GABC body without errors (#46).
+
+    A body is considered valid only if:
+    - ``gregorio`` produces ``.gtex`` output on stdout
+    - The exit code is 0
+    - There is nothing on stderr (no warnings or errors)
+
+    Returns a :class:`GregorioCompilationResult` with the compilation
+    verdict and any error/warning messages from gregorio.
+
+    When ``gregorio`` is not installed, returns a failing result with an
+    explanatory error message.
+    """
+    _log_version_once()
+    result = _run_gregorio(gabc_body.strip())
+
+    errors: list[str] = []
+
+    if result.gtex is None:
+        errors.append("gregorio produced no output")
+    if result.returncode != 0:
+        errors.append(f"gregorio exit code {result.returncode}")
+    if result.stderr:
+        for line in result.stderr.splitlines():
+            line = line.strip()
+            if line:
+                errors.append(line)
+
+    return GregorioCompilationResult(
+        compiles=len(errors) == 0,
+        errors=errors,
+    )

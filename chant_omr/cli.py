@@ -502,9 +502,15 @@ main.add_command(manifest)
     default=None,
     help="Grammar penalty (-inf = hard mask, e.g. -10.0 = soft). Default from config.",
 )
+@click.option(
+    "--gregorio-check",
+    is_flag=True,
+    default=False,
+    help="Run gregorio compilation on each prediction for structural validity (#46)",
+)
 def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
              repetition_penalty, limit, test_split_only, grammar_constrained,
-             grammar_penalty):
+             grammar_penalty, gregorio_check):
     """Evaluate model on benchmark (image, GABC) pairs (#14)."""
     from pathlib import Path
 
@@ -542,6 +548,14 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
             _cfg = yaml.safe_load(fh) or {}
         grammar_penalty = float(_cfg.get("inference", {}).get("grammar_penalty", float("-inf")))
 
+    if gregorio_check:
+        from chant_omr.evaluation.gregorio_roundtrip import gregorio_available
+        if not gregorio_available():
+            raise click.UsageError(
+                "--gregorio-check requires the gregorio binary (texlive-binaries)."
+            )
+        click.echo("Gregorio compilation check enabled", err=True)
+
     report = evaluate_checkpoint(
         Path(checkpoint),
         Path(benchmark_dir),
@@ -552,6 +566,7 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         repetition_penalty=repetition_penalty,
         grammar_constrained=grammar_constrained,
         grammar_penalty=grammar_penalty,
+        gregorio_check=gregorio_check,
         limit=limit,
         test_split_only=test_split_only,
         progress_callback=_progress,

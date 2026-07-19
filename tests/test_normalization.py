@@ -348,3 +348,92 @@ class TestNormalizedGED:
         result = gabc_edit_distance(pred, ref)
         assert result.norm_raw_distance is not None
         assert result.norm_raw_distance > 0
+
+
+# ---------------------------------------------------------------------------
+# Gregorio compilation check (#46)
+# ---------------------------------------------------------------------------
+
+
+class TestGregorioCompilation:
+    """Tests for check_gregorio_compilation()."""
+
+    @pytest.fixture(autouse=True)
+    def _require_gregorio(self):
+        from chant_omr.evaluation.gregorio_roundtrip import gregorio_available
+
+        if not gregorio_available():
+            pytest.skip("gregorio not installed")
+
+    def test_valid_gabc_compiles(self):
+        from chant_omr.evaluation.gregorio_roundtrip import check_gregorio_compilation
+
+        result = check_gregorio_compilation("(c4) Ky(f)ri(gf)e(h)")
+        assert result.compiles is True
+        assert result.errors == []
+
+    def test_empty_body_fails(self):
+        from chant_omr.evaluation.gregorio_roundtrip import check_gregorio_compilation
+
+        result = check_gregorio_compilation("")
+        assert result.compiles is False
+        assert len(result.errors) > 0
+
+    def test_unbalanced_parens_fails(self):
+        from chant_omr.evaluation.gregorio_roundtrip import check_gregorio_compilation
+
+        result = check_gregorio_compilation("(c4) Ky(f")
+        assert result.compiles is False
+        assert len(result.errors) > 0
+
+    def test_valid_complex_body(self):
+        from chant_omr.evaluation.gregorio_roundtrip import check_gregorio_compilation
+
+        body = "(c4) Al(f)le(ghg)lú(h){ia}(hg) (::)"
+        result = check_gregorio_compilation(body)
+        assert result.compiles is True
+        assert result.errors == []
+
+    def test_errors_contain_message(self):
+        from chant_omr.evaluation.gregorio_roundtrip import check_gregorio_compilation
+
+        result = check_gregorio_compilation("(c4) x(ZZZZZ)")
+        if not result.compiles:
+            assert any(len(e) > 0 for e in result.errors)
+
+
+class TestRunGregorio:
+    """Tests for the _run_gregorio low-level function."""
+
+    @pytest.fixture(autouse=True)
+    def _require_gregorio(self):
+        from chant_omr.evaluation.gregorio_roundtrip import gregorio_available
+
+        if not gregorio_available():
+            pytest.skip("gregorio not installed")
+
+    def test_returns_gregorio_result(self):
+        from chant_omr.evaluation.gregorio_roundtrip import GregorioResult, _run_gregorio
+
+        result = _run_gregorio("(c4) x(fgh)")
+        assert isinstance(result, GregorioResult)
+        assert result.gtex is not None
+        assert result.returncode == 0
+
+    def test_compile_gabc_body_still_works(self):
+        """Existing _compile_gabc_body wrapper returns same results as before."""
+        from chant_omr.evaluation.gregorio_roundtrip import _compile_gabc_body
+
+        gtex = _compile_gabc_body("(c4) x(fgh)")
+        assert gtex is not None
+        assert "Gre" in gtex
+
+    def test_caching(self):
+        from chant_omr.evaluation.gregorio_roundtrip import _run_gregorio
+
+        _run_gregorio.cache_clear()
+        body = "(c4) x(abc)"
+        _run_gregorio(body)
+        _run_gregorio(body)
+        info = _run_gregorio.cache_info()
+        assert info.hits >= 1
