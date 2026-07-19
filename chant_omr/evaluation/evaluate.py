@@ -121,6 +121,7 @@ def evaluate_checkpoint(
     beam_width: int = 3,
     max_length: int = 2048,
     repetition_penalty: float = 1.1,
+    grammar_constrained: bool = False,
     limit: int | None = None,
     test_split_only: bool = False,
     progress_callback: "Callable[[int, int, Path, float], None] | None" = None,
@@ -156,6 +157,7 @@ def evaluate_checkpoint(
         beam_width=beam_width,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
     )
 
     report = EvalReport()

@@ -59,6 +59,7 @@ def predict_gabc(
     beam_width: int = 3,
     max_length: int = 2048,
     repetition_penalty: float = 1.1,
+    grammar_constrained: bool = False,
     name: str | None = None,
     dump_metrics: bool = False,
     reference_gabc_path: Path | None = None,
@@ -84,6 +85,7 @@ def predict_gabc(
         beam_width=beam_width,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
     )
     ref_gabc = reference_gabc_path
     if dump_metrics and ref_gabc is None:

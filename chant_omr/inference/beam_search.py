@@ -6,6 +6,10 @@ can drive the decode loop.
 
 KV cache (#44): ``pytorch_logits_func_cached`` returns a stateful
 ``LogitsFunc`` that uses the decoder's KV cache for O(n) greedy generation.
+
+Grammar-constrained decoding (#37): when ``grammar_constrained=True``, a
+parenthesis-balancing mask is applied at each step to prevent structurally
+invalid GABC output.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
+from chant_omr.inference.grammar import GrammarMask, build_paren_table
 from chant_omr.model.chant_omr_model import ChantOMR
 from chant_omr.model.decoder import KVCache
 from chant_omr.model.tokenizer import GABCTokenizer
@@ -31,6 +36,7 @@ class DecodeConfig:
     beam_width: int = 1
     max_length: int = 2048
     repetition_penalty: float = 1.0
+    grammar_constrained: bool = False
 
 
 def apply_repetition_penalty(
@@ -127,6 +133,7 @@ def greedy_decode(
     max_length: int,
     repetition_penalty: float = 1.0,
     encoder_attention_mask: torch.Tensor | None = None,
+    grammar_mask: GrammarMask | None = None,
 ) -> list[int]:
     """Greedy left-to-right decode starting from BOS (uses KV cache)."""
     return greedy_decode_generic(
@@ -136,6 +143,7 @@ def greedy_decode(
         eos_token_id=eos_token_id,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
+        grammar_mask=grammar_mask,
     )
 
 
@@ -149,6 +157,7 @@ def beam_search_decode(
     beam_width: int,
     repetition_penalty: float = 1.0,
     encoder_attention_mask: torch.Tensor | None = None,
+    grammar_mask: GrammarMask | None = None,
 ) -> list[int]:
     """Beam search decode for batch size 1 encoder memory."""
     return beam_search_decode_generic(
@@ -159,6 +168,7 @@ def beam_search_decode(
         max_length=max_length,
         beam_width=beam_width,
         repetition_penalty=repetition_penalty,
+        grammar_mask=grammar_mask,
     )
 
 
@@ -175,17 +185,24 @@ def greedy_decode_generic(
     eos_token_id: int,
     max_length: int,
     repetition_penalty: float = 1.0,
+    grammar_mask: GrammarMask | None = None,
 ) -> list[int]:
     """Greedy decode using any ``LogitsFunc`` backend."""
     device = memory.device
     tokens = [bos_token_id]
+    if grammar_mask is not None:
+        grammar_mask.update(bos_token_id)
     for _ in range(max_length - 1):
         input_ids = torch.tensor([tokens], dtype=torch.long, device=device)
         log_probs = logits_fn(input_ids, memory)
         logits = log_probs.clone()
         logits = apply_repetition_penalty(logits, tokens, repetition_penalty)
+        if grammar_mask is not None:
+            logits = logits + grammar_mask.get_mask(device=device)
         next_id = int(torch.argmax(logits).item())
         tokens.append(next_id)
+        if grammar_mask is not None:
+            grammar_mask.update(next_id)
         if next_id == eos_token_id:
             break
     return tokens
@@ -200,15 +217,24 @@ def beam_search_decode_generic(
     max_length: int,
     beam_width: int,
     repetition_penalty: float = 1.0,
+    grammar_mask: GrammarMask | None = None,
 ) -> list[int]:
     """Beam search decode using any ``LogitsFunc`` backend."""
     device = memory.device
-    beams: list[tuple[list[int], float]] = [([bos_token_id], 0.0)]
+
+    # Each beam carries its own grammar state so branching is independent
+    init_gm = grammar_mask.clone() if grammar_mask is not None else None
+    if init_gm is not None:
+        init_gm.update(bos_token_id)
+
+    beams: list[tuple[list[int], float, GrammarMask | None]] = [
+        ([bos_token_id], 0.0, init_gm),
+    ]
     finished: list[tuple[list[int], float]] = []
 
     for _ in range(max_length - 1):
-        candidates: list[tuple[list[int], float]] = []
-        for tokens, score in beams:
+        candidates: list[tuple[list[int], float, GrammarMask | None]] = []
+        for tokens, score, gm in beams:
             if tokens[-1] == eos_token_id:
                 finished.append((tokens, score))
                 continue
@@ -216,11 +242,16 @@ def beam_search_decode_generic(
             log_probs = logits_fn(input_ids, memory)
             logits = log_probs.clone()
             logits = apply_repetition_penalty(logits, tokens, repetition_penalty)
+            if gm is not None:
+                logits = logits + gm.get_mask(device=device)
             topk = torch.topk(logits, k=min(beam_width, logits.numel()))
             for log_prob, token_id in zip(
                 topk.values.tolist(), topk.indices.tolist(), strict=True
             ):
-                candidates.append((tokens + [token_id], score + log_prob))
+                new_gm = gm.clone() if gm is not None else None
+                if new_gm is not None:
+                    new_gm.update(token_id)
+                candidates.append((tokens + [token_id], score + log_prob, new_gm))
 
         if not candidates:
             break
@@ -228,8 +259,8 @@ def beam_search_decode_generic(
         candidates.sort(key=lambda item: item[1], reverse=True)
         beams = candidates[:beam_width]
 
-        if all(seq[-1] == eos_token_id for seq, _ in beams):
-            finished.extend(beams)
+        if all(seq[-1] == eos_token_id for seq, _, _gm in beams):
+            finished.extend((seq, sc) for seq, sc, _gm in beams)
             break
 
     if finished:
@@ -270,6 +301,12 @@ def decode_token_ids(
     """Encode image once, then greedy or beam decode to token IDs."""
     if pixel_values.shape[0] != 1:
         raise ValueError("decode_token_ids expects batch size 1")
+
+    gm: GrammarMask | None = None
+    if config.grammar_constrained:
+        paren_table = build_paren_table(tokenizer)
+        gm = GrammarMask(paren_table, tokenizer.eos_id, tokenizer.vocab_size)
+
     with torch.inference_mode():
         memory = model.encode(pixel_values)
         enc_mask = build_encoder_attention_mask(pixel_values)
@@ -282,6 +319,7 @@ def decode_token_ids(
                 max_length=config.max_length,
                 repetition_penalty=config.repetition_penalty,
                 encoder_attention_mask=enc_mask,
+                grammar_mask=gm,
             )
         return beam_search_decode(
             model,
@@ -292,4 +330,5 @@ def decode_token_ids(
             beam_width=config.beam_width,
             repetition_penalty=config.repetition_penalty,
             encoder_attention_mask=enc_mask,
+            grammar_mask=gm,
         )

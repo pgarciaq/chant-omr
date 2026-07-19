@@ -51,3 +51,4 @@ inference:
   beam_width: 3
   repetition_penalty: 1.1
   max_length: 2048
+  grammar_constrained: false  # balanced-paren mask (#37); opt-in

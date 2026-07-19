@@ -79,6 +79,11 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
     default=False,
     help="Print teacher-forcing vs greedy diagnostics (uses sidecar .gabc when present)",
 )
+@click.option(
+    "--grammar-constrained/--no-grammar-constrained",
+    default=None,
+    help="Override inference.grammar_constrained (balanced-paren mask)",
+)
 def predict(
     image_path,
     checkpoint_path,
@@ -91,6 +96,7 @@ def predict(
     name,
     output,
     dump_metrics,
+    grammar_constrained,
 ):
     """Run OMR on a single image and output GABC."""
     from pathlib import Path
@@ -103,6 +109,10 @@ def predict(
     with cfg_path.open(encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
     infer_cfg = cfg.get("inference", {})
+
+    gc = grammar_constrained
+    if gc is None:
+        gc = bool(infer_cfg.get("grammar_constrained", False))
 
     gabc = predict_gabc(
         Path(image_path),
@@ -117,6 +127,7 @@ def predict(
             if repetition_penalty is not None
             else infer_cfg.get("repetition_penalty", 1.1)
         ),
+        grammar_constrained=gc,
         name=name,
         dump_metrics=dump_metrics,
     )
@@ -468,8 +479,14 @@ main.add_command(manifest)
     default=False,
     help="Only evaluate test-split samples (catalog_id %% 20 == 0)",
 )
+@click.option(
+    "--grammar-constrained/--no-grammar-constrained",
+    default=False,
+    show_default=True,
+    help="Enable balanced-paren grammar mask during decoding (#37)",
+)
 def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
-             repetition_penalty, limit, test_split_only):
+             repetition_penalty, limit, test_split_only, grammar_constrained):
     """Evaluate model on benchmark (image, GABC) pairs (#14)."""
     from pathlib import Path
 
@@ -509,6 +526,7 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         beam_width=beam_width,
         max_length=max_length,
         repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
         limit=limit,
         test_split_only=test_split_only,
         progress_callback=_progress,
