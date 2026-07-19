@@ -10,9 +10,8 @@ data:
   max_height: 1600         # cap height after scaling (no portrait letterbox)
   augment: true            # domain augmentation (#30) — training set only
   texture_dir: data/textures   # real parchment patches for texture overlay
-  num_workers: 0           # 0 for container safety (/dev/shm); set to 4 on bare metal or
-                           # VMs with sufficient shared memory. On containers, first run:
-                           #   mount -o remount,size=2G /dev/shm
+  num_workers: 4           # file_system sharing strategy avoids /dev/shm limits;
+                           # set to 0 only if multiprocessing causes issues
 
 model:
   encoder_variant: convnextv2_tiny

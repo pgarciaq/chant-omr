@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import torch.multiprocessing
+
+torch.multiprocessing.set_sharing_strategy("file_system")
+
 import click
 
 from chant_omr.training.lightning_module import run_training
