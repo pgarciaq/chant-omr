@@ -55,10 +55,30 @@ class EvalReport:
         return sum(s.ged.normalized for s in self.samples) / len(self.samples)
 
     @property
+    def mean_ged_norm(self) -> float:
+        """Mean GED after encoding-equivalence normalization (#47)."""
+        if not self.samples:
+            return 0.0
+        vals = [s.ged.norm_normalized for s in self.samples if s.ged.norm_normalized is not None]
+        return sum(vals) / len(vals) if vals else self.mean_ged
+
+    @property
     def mean_neume_accuracy(self) -> float:
         if not self.samples:
             return 0.0
         return sum(s.neume_acc.accuracy for s in self.samples) / len(self.samples)
+
+    @property
+    def mean_neume_accuracy_norm(self) -> float:
+        """Mean neume accuracy after encoding-equivalence normalization (#47)."""
+        if not self.samples:
+            return 0.0
+        vals = [
+            s.neume_acc.norm_accuracy
+            for s in self.samples
+            if s.neume_acc.norm_accuracy is not None
+        ]
+        return sum(vals) / len(vals) if vals else self.mean_neume_accuracy
 
     @property
     def structural_validity_rate(self) -> float:
@@ -124,7 +144,7 @@ def evaluate_checkpoint(
     grammar_constrained: bool = False,
     limit: int | None = None,
     test_split_only: bool = False,
-    progress_callback: "Callable[[int, int, Path, float], None] | None" = None,
+    progress_callback: Callable[[int, int, Path, float], None] | None = None,
 ) -> EvalReport:
     """Run evaluation on all benchmark pairs and return an ``EvalReport``.
 
@@ -213,7 +233,9 @@ def format_eval_report(report: EvalReport) -> str:
     lines.append("")
     lines.append("Aggregate metrics:")
     lines.append(f"  GED (mean normalized):     {report.mean_ged:.4f}")
+    lines.append(f"  GED (equiv-normalized):    {report.mean_ged_norm:.4f}")
     lines.append(f"  Neume accuracy (mean):     {report.mean_neume_accuracy:.4f}")
+    lines.append(f"  Neume accuracy (equiv):    {report.mean_neume_accuracy_norm:.4f}")
     lines.append(f"  Structural validity:       {report.structural_validity_rate:.1%}")
     lines.append(f"  Total inference time:      {report.total_elapsed_s:.1f}s")
     lines.append(
@@ -222,14 +244,27 @@ def format_eval_report(report: EvalReport) -> str:
 
     lines.append("")
     lines.append("Per-sample results:")
-    lines.append(f"{'Sample':<40} {'GED':>6} {'Neume%':>7} {'Valid':>5}")
-    lines.append("-" * 60)
+    lines.append(
+        f"{'Sample':<40} {'GED':>6} {'GED~':>6} {'Neume%':>7} {'Neu~%':>7} {'Valid':>5}"
+    )
+    lines.append("-" * 73)
     for s in report.samples:
         name = s.image_path.name
         if len(name) > 38:
             name = "..." + name[-35:]
+        ged_n = (
+            f"{s.ged.norm_normalized:>6.3f}"
+            if s.ged.norm_normalized is not None
+            else "   N/A"
+        )
+        neume_n = (
+            f"{s.neume_acc.norm_accuracy:>6.1%}"
+            if s.neume_acc.norm_accuracy is not None
+            else "   N/A"
+        )
         lines.append(
-            f"{name:<40} {s.ged.normalized:>6.3f} {s.neume_acc.accuracy:>6.1%} "
+            f"{name:<40} {s.ged.normalized:>6.3f} {ged_n} "
+            f"{s.neume_acc.accuracy:>6.1%} {neume_n} "
             f"{'yes' if s.validity.is_valid else 'NO':>5}"
         )
 
