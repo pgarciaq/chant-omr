@@ -446,8 +446,8 @@ main.add_command(manifest)
 @click.option(
     "--benchmark-dir",
     type=click.Path(exists=True),
-    default="benchmarks/",
-    help="Directory with (image, gabc) pairs — benchmarks/ or rendered test split",
+    default=None,
+    help="Directory with (image, gabc) pairs [default: benchmarks/ or data/rendered/]",
 )
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option(
@@ -478,6 +478,28 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         format_eval_report,
     )
 
+    if benchmark_dir is None:
+        for candidate in ("benchmarks/", "data/rendered/"):
+            if Path(candidate).is_dir():
+                benchmark_dir = candidate
+                break
+        if benchmark_dir is None:
+            raise click.UsageError("No benchmark directory found. Use --benchmark-dir.")
+    click.echo(f"Benchmark dir: {benchmark_dir}", err=True)
+
+    eval_start = __import__("time").monotonic()
+
+    def _progress(done, total, img_path, elapsed_s):
+        wall = __import__("time").monotonic() - eval_start
+        avg = wall / done
+        eta = avg * (total - done)
+        eta_min, eta_sec = divmod(int(eta), 60)
+        click.echo(
+            f"  [{done}/{total}] {img_path.name} — {elapsed_s:.1f}s "
+            f"(ETA {eta_min}m{eta_sec:02d}s)",
+            err=True,
+        )
+
     report = evaluate_checkpoint(
         Path(checkpoint),
         Path(benchmark_dir),
@@ -488,5 +510,6 @@ def evaluate(checkpoint, benchmark_dir, config, device, beam_width, max_length,
         repetition_penalty=repetition_penalty,
         limit=limit,
         test_split_only=test_split_only,
+        progress_callback=_progress,
     )
     click.echo(format_eval_report(report))

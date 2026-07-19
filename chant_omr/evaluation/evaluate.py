@@ -7,6 +7,7 @@ runs the model, and computes GED / neume accuracy / structural validity.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,6 +123,7 @@ def evaluate_checkpoint(
     repetition_penalty: float = 1.1,
     limit: int | None = None,
     test_split_only: bool = False,
+    progress_callback: "Callable[[int, int, Path, float], None] | None" = None,
 ) -> EvalReport:
     """Run evaluation on all benchmark pairs and return an ``EvalReport``.
 
@@ -186,6 +188,9 @@ def evaluate_checkpoint(
             validity=validity,
             elapsed_s=elapsed,
         ))
+
+        if progress_callback is not None:
+            progress_callback(len(report.samples), len(pairs), img_path, elapsed)
 
     return report
 
