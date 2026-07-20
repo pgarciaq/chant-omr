@@ -1,198 +1,53 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Documentation on ChantOMR</title><link>https://pgarciaq.github.io/chant-omr/docs/</link><description>Recent content in Documentation on ChantOMR</description><generator>Hugo</generator><language>en</language><atom:link href="https://pgarciaq.github.io/chant-omr/docs/index.xml" rel="self" type="application/rss+xml"/><item><title>Tutorial</title><link>https://pgarciaq.github.io/chant-omr/docs/tutorial/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/tutorial/</guid><description>&lt;h2 id="installation">Installation&lt;/h2>
-&lt;p>ChantOMR requires Python 3.11 or later (up to 3.13). Python 3.14 is not yet
-supported.&lt;/p>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-bash" data-lang="bash">&lt;span style="display:flex;">&lt;span>git clone https://github.com/pgarciaq/chant-omr.git
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>cd chant-omr
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>python3 -m venv .venv
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>source .venv/bin/activate
-&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>pip install -e &lt;span style="color:#e6db74">&amp;#34;.[dev]&amp;#34;&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>For OpenVINO export support, install the &lt;code>export&lt;/code> extra:&lt;/p>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-bash" data-lang="bash">&lt;span style="display:flex;">&lt;span>pip install -e &lt;span style="color:#e6db74">&amp;#34;.[dev,export]&amp;#34;&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="preparing-the-training-data">Preparing the Training Data&lt;/h2>
-&lt;p>The training pipeline has three stages, each a CLI command:&lt;/p>
-&lt;h3 id="1-download-the-gabc-corpus">1. Download the GABC corpus&lt;/h3>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-bash" data-lang="bash">&lt;span style="display:flex;">&lt;span>chant-omr download
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>This downloads ~10,000 GABC files from &lt;a href="https://gregobase.selapa.net/">GregoBase&lt;/a>
-into &lt;code>data/gregobase/&lt;/code>. The download is incremental — re-running skips
-files already present.&lt;/p></description></item><item><title>CLI Reference</title><link>https://pgarciaq.github.io/chant-omr/docs/cli-reference/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/cli-reference/</guid><description>&lt;p>ChantOMR provides a single entry point: &lt;code>chant-omr&lt;/code>. All subcommands are
-listed below.&lt;/p>
-&lt;h2 id="chant-omr-download">&lt;code>chant-omr download&lt;/code>&lt;/h2>
-&lt;p>Download GABC files from GregoBase.&lt;/p>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-bash" data-lang="bash">&lt;span style="display:flex;">&lt;span>chant-omr download &lt;span style="color:#f92672">[&lt;/span>--output-dir data/gregobase/&lt;span style="color:#f92672">]&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>Fetches GABC transcriptions from the GregoBase API. The download is
-incremental — existing files are skipped. Uses a polite User-Agent header
-and respects rate limits.&lt;/p>
-&lt;h2 id="chant-omr-render">&lt;code>chant-omr render&lt;/code>&lt;/h2>
-&lt;p>Render GABC files into score images.&lt;/p>
-&lt;div class="highlight">&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-bash" data-lang="bash">&lt;span style="display:flex;">&lt;span>chant-omr render &lt;span style="color:#f92672">[&lt;/span>--gabc-dir data/gregobase/&lt;span style="color:#f92672">]&lt;/span> &lt;span style="color:#f92672">[&lt;/span>--output-dir data/rendered/&lt;span style="color:#f92672">]&lt;/span> &lt;span style="color:#f92672">[&lt;/span>--workers 4&lt;span style="color:#f92672">]&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>Invokes Gregorio + LuaLaTeX to render each GABC file into a PNG image.
-Renders are deterministic. The &lt;code>--workers&lt;/code> flag controls parallel rendering.&lt;/p></description></item><item><title>Architecture</title><link>https://pgarciaq.github.io/chant-omr/docs/architecture/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/architecture/</guid><description>&lt;p>ChantOMR uses a vision-encoder-decoder architecture: the image goes in,
-autoregressive GABC tokens come out. There are no intermediate stages
-(no staff detection, no symbol segmentation, no classification pipeline).&lt;/p>
-&lt;h2 id="overview">Overview&lt;/h2>
-&lt;table>
- &lt;thead>
- &lt;tr>
- &lt;th>Component&lt;/th>
- &lt;th>Implementation&lt;/th>
- &lt;th>Parameters&lt;/th>
- &lt;/tr>
- &lt;/thead>
- &lt;tbody>
- &lt;tr>
- &lt;td>Encoder&lt;/td>
- &lt;td>ConvNeXt-V2 Tiny&lt;/td>
- &lt;td>28.6M&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>Projector&lt;/td>
- &lt;td>2D sinusoidal + MLP&lt;/td>
- &lt;td>~0.8M&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>Decoder&lt;/td>
- &lt;td>Transformer (Pre-LN, RoPE)&lt;/td>
- &lt;td>~29.8M&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>&lt;strong>Total&lt;/strong>&lt;/td>
- &lt;td>&lt;/td>
- &lt;td>&lt;strong>~59M&lt;/strong>&lt;/td>
- &lt;/tr>
- &lt;/tbody>
-&lt;/table>
-&lt;h2 id="encoder-convnext-v2-tiny">Encoder: ConvNeXt-V2 Tiny&lt;/h2>
-&lt;p>The encoder is a ConvNeXt-V2 Tiny backbone (&lt;code>convnextv2_tiny.fcmae_ft_in22k_in1k&lt;/code>)
-from the &lt;code>timm&lt;/code> library, pretrained on ImageNet.&lt;/p>
-&lt;p>&lt;strong>Input:&lt;/strong> Score images at width 1050, variable height. Images are
-ImageNet-normalized (mean/std per channel).&lt;/p></description></item><item><title>Data Augmentation</title><link>https://pgarciaq.github.io/chant-omr/docs/augmentation/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/augmentation/</guid><description>&lt;p>ChantOMR is trained on clean, computer-rendered score images (Gregorio +
-LuaLaTeX). Real manuscripts look very different: aged parchment, faded ink,
-foxing spots, uneven lighting, perspective distortion from photographing a
-bound book. Domain augmentation bridges this gap by transforming clean renders
-on-the-fly during training so the model learns to handle real-world conditions.&lt;/p>
-&lt;h2 id="how-it-works">How It Works&lt;/h2>
-&lt;p>Each training image passes through 15 independent transforms, each with its
-own probability. On average, ~6-7 transforms fire per image. The transforms
-are applied using OpenCV and NumPy, with a seeded random generator for
-reproducibility.&lt;/p></description></item><item><title>Training Guide</title><link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid><description>&lt;p>This is a condensed version of the full
-&lt;a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md&lt;/a>.&lt;/p>
-&lt;h2 id="recommended-cloud-gpu-quickpod">Recommended: Cloud GPU (QuickPod)&lt;/h2>
-&lt;p>The cheapest path. The model is ~59M params and the dataset is &lt;del>20k images.
-Training takes &lt;strong>~24 hours on a 16 GB GPU&lt;/strong> and costs **&lt;/del>$4-12** depending
-on GPU and provider.&lt;/p>
-&lt;h3 id="gpu-recommendations">GPU recommendations&lt;/h3>
-&lt;table>
- &lt;thead>
- &lt;tr>
- &lt;th>GPU&lt;/th>
- &lt;th>$/hr&lt;/th>
- &lt;th>VRAM&lt;/th>
- &lt;th>Est. total&lt;/th>
- &lt;/tr>
- &lt;/thead>
- &lt;tbody>
- &lt;tr>
- &lt;td>RTX 5080&lt;/td>
- &lt;td>$0.16&lt;/td>
- &lt;td>16 GB&lt;/td>
- &lt;td>~$4&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>RTX 5090&lt;/td>
- &lt;td>$0.50&lt;/td>
- &lt;td>32 GB&lt;/td>
- &lt;td>~$6&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>A100 PCIe&lt;/td>
- &lt;td>$0.39&lt;/td>
- &lt;td>40 GB&lt;/td>
- &lt;td>~$5-9&lt;/td>
- &lt;/tr>
- &lt;/tbody>
-&lt;/table>
-&lt;p>Any GPU with &lt;strong>Ampere or newer&lt;/strong> architecture and &lt;strong>16+ GB VRAM&lt;/strong> works
-with the default config (&lt;code>batch_size: 2&lt;/code>, &lt;code>accumulate_grad_batches: 4&lt;/code>,
-effective batch size 8).&lt;/p></description></item><item><title>Design Decisions</title><link>https://pgarciaq.github.io/chant-omr/docs/design-decisions/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/design-decisions/</guid><description>&lt;p>ChantOMR documents major technical decisions as Architecture Decision Records
-(ADRs). Each ADR captures the context, decision, and consequences of a
-design choice.&lt;/p>
-&lt;p>The full ADR files are in
-&lt;a href="https://github.com/pgarciaq/chant-omr/tree/master/docs/adr">&lt;code>docs/adr/&lt;/code>&lt;/a>
-on GitHub.&lt;/p>
-&lt;h2 id="adr-index">ADR Index&lt;/h2>
-&lt;table>
- &lt;thead>
- &lt;tr>
- &lt;th>#&lt;/th>
- &lt;th>Decision&lt;/th>
- &lt;th>Summary&lt;/th>
- &lt;/tr>
- &lt;/thead>
- &lt;tbody>
- &lt;tr>
- &lt;td>0001&lt;/td>
- &lt;td>Record architecture decisions&lt;/td>
- &lt;td>Use lightweight ADR format for all significant technical choices&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0002&lt;/td>
- &lt;td>Variable-height score strips&lt;/td>
- &lt;td>Accept variable-height images (fixed width 1050) with a variable-size patch grid — no padding, no cropping&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0003&lt;/td>
- &lt;td>BPE tokenizer on GABC bodies&lt;/td>
- &lt;td>Train BPE on notation bodies only (after &lt;code>%%&lt;/code>), not headers — ~2000 token vocabulary&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0004&lt;/td>
- &lt;td>PNG-first dataset pairing&lt;/td>
- &lt;td>Index by rendered PNGs, require matching GABC sidecar — reject orphans in either direction&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0005&lt;/td>
- &lt;td>Parallel render workers&lt;/td>
- &lt;td>Use multiprocessing for Gregorio rendering with a shared TeX cache directory&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0006&lt;/td>
- &lt;td>Transcoda-aligned decoder&lt;/td>
- &lt;td>Pre-LN Transformer decoder with RoPE, aligned with Transcoda&amp;rsquo;s proven architecture&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0007&lt;/td>
- &lt;td>Defer NABC for v0&lt;/td>
- &lt;td>NABC (neume-level) notation support deferred — v0 targets standard GABC only&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0008&lt;/td>
- &lt;td>End-to-end over classical OMR&lt;/td>
- &lt;td>Single encoder-decoder model instead of staff detection → segmentation → classification pipeline&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0009&lt;/td>
- &lt;td>MLP projector with 2D sinusoidal&lt;/td>
- &lt;td>Bridge encoder (768-dim) to decoder (512-dim) with spatial positional encoding&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0010&lt;/td>
- &lt;td>Encoder padding mask in collate&lt;/td>
- &lt;td>Handle variable-height images via padding masks created during batch collation&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0011&lt;/td>
- &lt;td>Teacher-forcing cross-entropy&lt;/td>
- &lt;td>Standard teacher-forcing training loss — simple, effective, well-understood&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0012&lt;/td>
- &lt;td>OpenVINO export and deployment&lt;/td>
- &lt;td>Export to OpenVINO IR for Intel hardware inference — no PyTorch at runtime&lt;/td>
- &lt;/tr>
- &lt;tr>
- &lt;td>0013&lt;/td>
- &lt;td>GABC output assembly&lt;/td>
- &lt;td>Assemble decoded tokens into valid GABC with synthetic headers and structural validation&lt;/td>
- &lt;/tr>
- &lt;/tbody>
-&lt;/table></description></item></channel></rss>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Documentation on ChantOMR</title>
+    <link>https://pgarciaq.github.io/chant-omr/docs/</link>
+    <description>Recent content in Documentation on ChantOMR</description>
+    <generator>Hugo</generator>
+    <language>en</language>
+    <atom:link href="https://pgarciaq.github.io/chant-omr/docs/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Tutorial</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/tutorial/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/tutorial/</guid>
+      <description>&lt;h2 id=&#34;installation&#34;&gt;Installation&lt;/h2&gt;&#xA;&lt;p&gt;ChantOMR requires Python 3.11 or later (up to 3.13). Python 3.14 is not yet&#xA;supported.&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;git clone https://github.com/pgarciaq/chant-omr.git&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;cd chant-omr&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;python3 -m venv .venv&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;source .venv/bin/activate&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;pip install -e &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#34;.[dev]&amp;#34;&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;For OpenVINO export support, install the &lt;code&gt;export&lt;/code&gt; extra:&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;pip install -e &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#34;.[dev,export]&amp;#34;&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id=&#34;preparing-the-training-data&#34;&gt;Preparing the Training Data&lt;/h2&gt;&#xA;&lt;p&gt;The training pipeline has three stages, each a CLI command:&lt;/p&gt;&#xA;&lt;h3 id=&#34;1-download-the-gabc-corpus&#34;&gt;1. Download the GABC corpus&lt;/h3&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;chant-omr download&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;This downloads ~10,000 GABC files from &lt;a href=&#34;https://gregobase.selapa.net/&#34;&gt;GregoBase&lt;/a&gt;&#xA;into &lt;code&gt;data/gregobase/&lt;/code&gt;. The download is incremental — re-running skips&#xA;files already present.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>CLI Reference</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/cli-reference/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/cli-reference/</guid>
+      <description>&lt;p&gt;ChantOMR provides a single entry point: &lt;code&gt;chant-omr&lt;/code&gt;. All subcommands are&#xA;listed below.&lt;/p&gt;&#xA;&lt;h2 id=&#34;chant-omr-download&#34;&gt;&lt;code&gt;chant-omr download&lt;/code&gt;&lt;/h2&gt;&#xA;&lt;p&gt;Download GABC files from GregoBase.&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;chant-omr download &lt;span style=&#34;color:#f92672&#34;&gt;[&lt;/span&gt;--output-dir data/gregobase/&lt;span style=&#34;color:#f92672&#34;&gt;]&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Fetches GABC transcriptions from the GregoBase API. The download is&#xA;incremental — existing files are skipped. Uses a polite User-Agent header&#xA;and respects rate limits.&lt;/p&gt;&#xA;&lt;h2 id=&#34;chant-omr-render&#34;&gt;&lt;code&gt;chant-omr render&lt;/code&gt;&lt;/h2&gt;&#xA;&lt;p&gt;Render GABC files into score images.&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;chant-omr render &lt;span style=&#34;color:#f92672&#34;&gt;[&lt;/span&gt;--gabc-dir data/gregobase/&lt;span style=&#34;color:#f92672&#34;&gt;]&lt;/span&gt; &lt;span style=&#34;color:#f92672&#34;&gt;[&lt;/span&gt;--output-dir data/rendered/&lt;span style=&#34;color:#f92672&#34;&gt;]&lt;/span&gt; &lt;span style=&#34;color:#f92672&#34;&gt;[&lt;/span&gt;--workers 4&lt;span style=&#34;color:#f92672&#34;&gt;]&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Invokes Gregorio + LuaLaTeX to render each GABC file into a PNG image.&#xA;Renders are deterministic. The &lt;code&gt;--workers&lt;/code&gt; flag controls parallel rendering.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Architecture</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/architecture/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/architecture/</guid>
+      <description>&lt;p&gt;ChantOMR uses a vision-encoder-decoder architecture: the image goes in,&#xA;autoregressive GABC tokens come out. There are no intermediate stages&#xA;(no staff detection, no symbol segmentation, no classification pipeline).&lt;/p&gt;&#xA;&lt;h2 id=&#34;overview&#34;&gt;Overview&lt;/h2&gt;&#xA;&lt;table&gt;&#xA;  &lt;thead&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;th&gt;Component&lt;/th&gt;&#xA;          &lt;th&gt;Implementation&lt;/th&gt;&#xA;          &lt;th&gt;Parameters&lt;/th&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/thead&gt;&#xA;  &lt;tbody&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;Encoder&lt;/td&gt;&#xA;          &lt;td&gt;ConvNeXt-V2 Tiny&lt;/td&gt;&#xA;          &lt;td&gt;28.6M&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;Projector&lt;/td&gt;&#xA;          &lt;td&gt;2D sinusoidal + MLP&lt;/td&gt;&#xA;          &lt;td&gt;~0.8M&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;Decoder&lt;/td&gt;&#xA;          &lt;td&gt;Transformer (Pre-LN, RoPE)&lt;/td&gt;&#xA;          &lt;td&gt;~29.8M&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;&lt;strong&gt;Total&lt;/strong&gt;&lt;/td&gt;&#xA;          &lt;td&gt;&lt;/td&gt;&#xA;          &lt;td&gt;&lt;strong&gt;~59M&lt;/strong&gt;&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/tbody&gt;&#xA;&lt;/table&gt;&#xA;&lt;h2 id=&#34;encoder-convnext-v2-tiny&#34;&gt;Encoder: ConvNeXt-V2 Tiny&lt;/h2&gt;&#xA;&lt;p&gt;The encoder is a ConvNeXt-V2 Tiny backbone (&lt;code&gt;convnextv2_tiny.fcmae_ft_in22k_in1k&lt;/code&gt;)&#xA;from the &lt;code&gt;timm&lt;/code&gt; library, pretrained on ImageNet.&lt;/p&gt;&#xA;&lt;p&gt;&lt;strong&gt;Input:&lt;/strong&gt; Score images at width 1050, variable height. Images are&#xA;ImageNet-normalized (mean/std per channel).&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Data Augmentation</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/augmentation/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/augmentation/</guid>
+      <description>&lt;p&gt;ChantOMR is trained on clean, computer-rendered score images (Gregorio +&#xA;LuaLaTeX). Real manuscripts look very different: aged parchment, faded ink,&#xA;foxing spots, uneven lighting, perspective distortion from photographing a&#xA;bound book. Domain augmentation bridges this gap by transforming clean renders&#xA;on-the-fly during training so the model learns to handle real-world conditions.&lt;/p&gt;&#xA;&lt;h2 id=&#34;how-it-works&#34;&gt;How It Works&lt;/h2&gt;&#xA;&lt;p&gt;Each training image passes through 15 independent transforms, each with its&#xA;own probability. On average, ~6-7 transforms fire per image. The transforms&#xA;are applied using OpenCV and NumPy, with a seeded random generator for&#xA;reproducibility.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Training Guide</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid>
+      <description>&lt;p&gt;This is a condensed version of the full&#xA;&lt;a href=&#34;https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md&#34;&gt;TRAINING-PLAN.md&lt;/a&gt;.&lt;/p&gt;&#xA;&lt;h2 id=&#34;recommended-cloud-gpu-quickpod&#34;&gt;Recommended: Cloud GPU (QuickPod)&lt;/h2&gt;&#xA;&lt;p&gt;The cheapest path. The model is ~59M params and the dataset is &lt;del&gt;20k images.&#xA;Training takes &lt;strong&gt;~24 hours on a 16 GB GPU&lt;/strong&gt; and costs **&lt;/del&gt;$4-12** depending&#xA;on GPU and provider.&lt;/p&gt;&#xA;&lt;h3 id=&#34;gpu-recommendations&#34;&gt;GPU recommendations&lt;/h3&gt;&#xA;&lt;table&gt;&#xA;  &lt;thead&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;th&gt;GPU&lt;/th&gt;&#xA;          &lt;th&gt;$/hr&lt;/th&gt;&#xA;          &lt;th&gt;VRAM&lt;/th&gt;&#xA;          &lt;th&gt;Est. total&lt;/th&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/thead&gt;&#xA;  &lt;tbody&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;RTX 5080&lt;/td&gt;&#xA;          &lt;td&gt;$0.16&lt;/td&gt;&#xA;          &lt;td&gt;16 GB&lt;/td&gt;&#xA;          &lt;td&gt;~$4&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;RTX 5090&lt;/td&gt;&#xA;          &lt;td&gt;$0.50&lt;/td&gt;&#xA;          &lt;td&gt;32 GB&lt;/td&gt;&#xA;          &lt;td&gt;~$6&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;A100 PCIe&lt;/td&gt;&#xA;          &lt;td&gt;$0.39&lt;/td&gt;&#xA;          &lt;td&gt;40 GB&lt;/td&gt;&#xA;          &lt;td&gt;~$5-9&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/tbody&gt;&#xA;&lt;/table&gt;&#xA;&lt;p&gt;Any GPU with &lt;strong&gt;Ampere or newer&lt;/strong&gt; architecture and &lt;strong&gt;16+ GB VRAM&lt;/strong&gt; works&#xA;with the default config (&lt;code&gt;batch_size: 2&lt;/code&gt;, &lt;code&gt;accumulate_grad_batches: 4&lt;/code&gt;,&#xA;effective batch size 8).&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Design Decisions</title>
+      <link>https://pgarciaq.github.io/chant-omr/docs/design-decisions/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      <guid>https://pgarciaq.github.io/chant-omr/docs/design-decisions/</guid>
+      <description>&lt;p&gt;ChantOMR documents major technical decisions as Architecture Decision Records&#xA;(ADRs). Each ADR captures the context, decision, and consequences of a&#xA;design choice.&lt;/p&gt;&#xA;&lt;p&gt;The full ADR files are in&#xA;&lt;a href=&#34;https://github.com/pgarciaq/chant-omr/tree/master/docs/adr&#34;&gt;&lt;code&gt;docs/adr/&lt;/code&gt;&lt;/a&gt;&#xA;on GitHub.&lt;/p&gt;&#xA;&lt;h2 id=&#34;adr-index&#34;&gt;ADR Index&lt;/h2&gt;&#xA;&lt;table&gt;&#xA;  &lt;thead&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;th&gt;#&lt;/th&gt;&#xA;          &lt;th&gt;Decision&lt;/th&gt;&#xA;          &lt;th&gt;Summary&lt;/th&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/thead&gt;&#xA;  &lt;tbody&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0001&lt;/td&gt;&#xA;          &lt;td&gt;Record architecture decisions&lt;/td&gt;&#xA;          &lt;td&gt;Use lightweight ADR format for all significant technical choices&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0002&lt;/td&gt;&#xA;          &lt;td&gt;Variable-height score strips&lt;/td&gt;&#xA;          &lt;td&gt;Accept variable-height images (fixed width 1050) with a variable-size patch grid — no padding, no cropping&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0003&lt;/td&gt;&#xA;          &lt;td&gt;BPE tokenizer on GABC bodies&lt;/td&gt;&#xA;          &lt;td&gt;Train BPE on notation bodies only (after &lt;code&gt;%%&lt;/code&gt;), not headers — ~2000 token vocabulary&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0004&lt;/td&gt;&#xA;          &lt;td&gt;PNG-first dataset pairing&lt;/td&gt;&#xA;          &lt;td&gt;Index by rendered PNGs, require matching GABC sidecar — reject orphans in either direction&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0005&lt;/td&gt;&#xA;          &lt;td&gt;Parallel render workers&lt;/td&gt;&#xA;          &lt;td&gt;Use multiprocessing for Gregorio rendering with a shared TeX cache directory&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0006&lt;/td&gt;&#xA;          &lt;td&gt;Transcoda-aligned decoder&lt;/td&gt;&#xA;          &lt;td&gt;Pre-LN Transformer decoder with RoPE, aligned with Transcoda&amp;rsquo;s proven architecture&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0007&lt;/td&gt;&#xA;          &lt;td&gt;Defer NABC for v0&lt;/td&gt;&#xA;          &lt;td&gt;NABC (neume-level) notation support deferred — v0 targets standard GABC only&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0008&lt;/td&gt;&#xA;          &lt;td&gt;End-to-end over classical OMR&lt;/td&gt;&#xA;          &lt;td&gt;Single encoder-decoder model instead of staff detection → segmentation → classification pipeline&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0009&lt;/td&gt;&#xA;          &lt;td&gt;MLP projector with 2D sinusoidal&lt;/td&gt;&#xA;          &lt;td&gt;Bridge encoder (768-dim) to decoder (512-dim) with spatial positional encoding&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0010&lt;/td&gt;&#xA;          &lt;td&gt;Encoder padding mask in collate&lt;/td&gt;&#xA;          &lt;td&gt;Handle variable-height images via padding masks created during batch collation&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0011&lt;/td&gt;&#xA;          &lt;td&gt;Teacher-forcing cross-entropy&lt;/td&gt;&#xA;          &lt;td&gt;Standard teacher-forcing training loss — simple, effective, well-understood&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0012&lt;/td&gt;&#xA;          &lt;td&gt;OpenVINO export and deployment&lt;/td&gt;&#xA;          &lt;td&gt;Export to OpenVINO IR for Intel hardware inference — no PyTorch at runtime&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;      &lt;tr&gt;&#xA;          &lt;td&gt;0013&lt;/td&gt;&#xA;          &lt;td&gt;GABC output assembly&lt;/td&gt;&#xA;          &lt;td&gt;Assemble decoded tokens into valid GABC with synthetic headers and structural validation&lt;/td&gt;&#xA;      &lt;/tr&gt;&#xA;  &lt;/tbody&gt;&#xA;&lt;/table&gt;</description>
+    </item>
+  </channel>
+</rss>

@@ -1,2 +1,94 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Documentation — ChantOMR</title><meta name=description content="End-to-end Optical Music Recognition for Gregorian chant square notation"><link rel=preconnect href=https://fonts.googleapis.com><link rel=preconnect href=https://fonts.gstatic.com crossorigin><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel=stylesheet><link rel=stylesheet href=/chant-omr/css/style.css></head><body><nav class=site-nav><div class=nav-inner><a href=/ class=nav-brand>ChantOMR</a><ul class=nav-links><li><a href=/chant-omr/docs/>Docs</a></li><li><a href=/#features>Features</a></li><li><a href=/#pipeline>Pipeline</a></li><li><a href=https://github.com/pgarciaq/chant-omr target=_blank>GitHub</a></li></ul></div></nav><div class=docs-layout><aside class=docs-sidebar><h3 class=sidebar-title>Documentation</h3><ul class=sidebar-nav><li><a href=/chant-omr/docs/tutorial/>Tutorial</a></li><li><a href=/chant-omr/docs/cli-reference/>CLI Reference</a></li><li><a href=/chant-omr/docs/architecture/>Architecture</a></li><li><a href=/chant-omr/docs/augmentation/>Data Augmentation</a></li><li><a href=/chant-omr/docs/training-guide/>Training Guide</a></li><li><a href=/chant-omr/docs/design-decisions/>Design Decisions</a></li></ul><a href=/ class=sidebar-back>&larr; Back to home</a></aside><main class=docs-content><h1 class=docs-page-title>Documentation</h1><p>Welcome to the ChantOMR documentation. These pages cover installation,
-training, inference, and the design decisions behind the model.</p><div class=docs-cards><a href=/chant-omr/docs/tutorial/ class=docs-card><h3>Tutorial</h3><p>Install ChantOMR, prepare training data, train a model, and run inference</p></a><a href=/chant-omr/docs/cli-reference/ class=docs-card><h3>CLI Reference</h3><p>Complete reference for the chant-omr command-line interface</p></a><a href=/chant-omr/docs/architecture/ class=docs-card><h3>Architecture</h3><p>Model architecture: encoder, projector, decoder, and tokenizer</p></a><a href=/chant-omr/docs/augmentation/ class=docs-card><h3>Data Augmentation</h3><p>15 domain transforms that bridge the gap between clean renders and real manuscripts</p></a><a href=/chant-omr/docs/training-guide/ class=docs-card><h3>Training Guide</h3><p>Step-by-step guide for training ChantOMR on a cloud GPU</p></a><a href=/chant-omr/docs/design-decisions/ class=docs-card><h3>Design Decisions</h3><p>Architecture Decision Records (ADRs) documenting key technical choices</p></a></div></main></div><script src=/chant-omr/js/slider.js></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentation — ChantOMR</title>
+  <meta name="description" content="End-to-end Optical Music Recognition for Gregorian chant square notation">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/chant-omr/css/style.css">
+</head>
+<body>
+  
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">ChantOMR</a>
+    <ul class="nav-links">
+      <li><a href="/chant-omr/docs/">Docs</a></li>
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/#pipeline">Pipeline</a></li>
+      <li><a href="https://github.com/pgarciaq/chant-omr" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <h3 class="sidebar-title">Documentation</h3>
+    <ul class="sidebar-nav">
+      
+        <li><a href="/chant-omr/docs/tutorial/">Tutorial</a></li>
+      
+        <li><a href="/chant-omr/docs/cli-reference/">CLI Reference</a></li>
+      
+        <li><a href="/chant-omr/docs/architecture/">Architecture</a></li>
+      
+        <li><a href="/chant-omr/docs/augmentation/">Data Augmentation</a></li>
+      
+        <li><a href="/chant-omr/docs/training-guide/">Training Guide</a></li>
+      
+        <li><a href="/chant-omr/docs/design-decisions/">Design Decisions</a></li>
+      
+    </ul>
+    <a href="/" class="sidebar-back">&larr; Back to home</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1 class="docs-page-title">Documentation</h1>
+    <p>Welcome to the ChantOMR documentation. These pages cover installation,
+training, inference, and the design decisions behind the model.</p>
+
+
+    <div class="docs-cards">
+      
+        <a href="/chant-omr/docs/tutorial/" class="docs-card">
+          <h3>Tutorial</h3>
+          <p>Install ChantOMR, prepare training data, train a model, and run inference</p>
+        </a>
+      
+        <a href="/chant-omr/docs/cli-reference/" class="docs-card">
+          <h3>CLI Reference</h3>
+          <p>Complete reference for the chant-omr command-line interface</p>
+        </a>
+      
+        <a href="/chant-omr/docs/architecture/" class="docs-card">
+          <h3>Architecture</h3>
+          <p>Model architecture: encoder, projector, decoder, and tokenizer</p>
+        </a>
+      
+        <a href="/chant-omr/docs/augmentation/" class="docs-card">
+          <h3>Data Augmentation</h3>
+          <p>15 domain transforms that bridge the gap between clean renders and real manuscripts</p>
+        </a>
+      
+        <a href="/chant-omr/docs/training-guide/" class="docs-card">
+          <h3>Training Guide</h3>
+          <p>Step-by-step guide for training ChantOMR on a cloud GPU</p>
+        </a>
+      
+        <a href="/chant-omr/docs/design-decisions/" class="docs-card">
+          <h3>Design Decisions</h3>
+          <p>Architecture Decision Records (ADRs) documenting key technical choices</p>
+        </a>
+      
+    </div>
+  </main>
+</div>
+
+
+  <script src="/chant-omr/js/slider.js"></script>
+</body>
+</html>

@@ -115,3 +115,43 @@ chant-omr evaluate --checkpoint checkpoints/best.ckpt --benchmark-dir benchmarks
 ```
 
 Reports GABC Edit Distance (GED), neume accuracy, and structural validity.
+
+## ghh Integration
+
+ChantOMR integrates with [Guido's Helping Hand](https://pgarciaq.github.io/ghh/)
+as Stage 14 (OMR). After ghh processes your book photos through its pipeline
+(crop, deskew, perspective correction, etc.), the OMR stage runs ChantOMR
+inference on each music page and produces `.gabc` files.
+
+### Setup
+
+1. Install ghh with the OMR extra:
+
+```bash
+pip install ghh[omr]
+```
+
+2. Install chant-omr (until it's published on PyPI):
+
+```bash
+pip install -e /path/to/chant-omr
+```
+
+3. Export your trained model to OpenVINO:
+
+```bash
+chant-omr export checkpoints/best.ckpt --format openvino --output-dir models/
+```
+
+### Running OMR in ghh
+
+```bash
+ghh run /path/to/photos --model-dir /path/to/models/
+```
+
+The `--model-dir` flag points to the directory containing the exported
+OpenVINO IR files. Only pages classified as "music" by Stage 4 (Page
+Detect) are processed; text and blank pages pass through unchanged.
+
+See the [ghh Pipeline Stages](https://pgarciaq.github.io/ghh/docs/pipeline/)
+documentation for details on Stage 14.

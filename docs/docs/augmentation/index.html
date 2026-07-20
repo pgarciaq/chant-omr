@@ -1,26 +1,262 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Data Augmentation — ChantOMR</title><meta name=description content="End-to-end Optical Music Recognition for Gregorian chant square notation"><link rel=preconnect href=https://fonts.googleapis.com><link rel=preconnect href=https://fonts.gstatic.com crossorigin><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel=stylesheet><link rel=stylesheet href=/chant-omr/css/style.css></head><body><nav class=site-nav><div class=nav-inner><a href=/ class=nav-brand>ChantOMR</a><ul class=nav-links><li><a href=/chant-omr/docs/>Docs</a></li><li><a href=/#features>Features</a></li><li><a href=/#pipeline>Pipeline</a></li><li><a href=https://github.com/pgarciaq/chant-omr target=_blank>GitHub</a></li></ul></div></nav><div class=docs-layout><aside class=docs-sidebar><h3 class=sidebar-title>Documentation</h3><ul class=sidebar-nav><li><a href=/chant-omr/docs/tutorial/>Tutorial</a></li><li><a href=/chant-omr/docs/cli-reference/>CLI Reference</a></li><li><a href=/chant-omr/docs/architecture/>Architecture</a></li><li><a href=/chant-omr/docs/augmentation/ class=active>Data Augmentation</a></li><li><a href=/chant-omr/docs/training-guide/>Training Guide</a></li><li><a href=/chant-omr/docs/design-decisions/>Design Decisions</a></li></ul><a href=/ class=sidebar-back>&larr; Back to home</a></aside><main class=docs-content><h1 class=docs-page-title>Data Augmentation</h1><p>ChantOMR is trained on clean, computer-rendered score images (Gregorio +
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data Augmentation — ChantOMR</title>
+  <meta name="description" content="End-to-end Optical Music Recognition for Gregorian chant square notation">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/chant-omr/css/style.css">
+</head>
+<body>
+  
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">ChantOMR</a>
+    <ul class="nav-links">
+      <li><a href="/chant-omr/docs/">Docs</a></li>
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/#pipeline">Pipeline</a></li>
+      <li><a href="https://github.com/pgarciaq/chant-omr" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <h3 class="sidebar-title">Documentation</h3>
+    <ul class="sidebar-nav">
+      
+        <li>
+          <a href="/chant-omr/docs/tutorial/"
+             >
+            Tutorial
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/cli-reference/"
+             >
+            CLI Reference
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/architecture/"
+             >
+            Architecture
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/augmentation/"
+             class="active">
+            Data Augmentation
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/training-guide/"
+             >
+            Training Guide
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/design-decisions/"
+             >
+            Design Decisions
+          </a>
+        </li>
+      
+    </ul>
+    <a href="/" class="sidebar-back">&larr; Back to home</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1 class="docs-page-title">Data Augmentation</h1>
+    <p>ChantOMR is trained on clean, computer-rendered score images (Gregorio +
 LuaLaTeX). Real manuscripts look very different: aged parchment, faded ink,
 foxing spots, uneven lighting, perspective distortion from photographing a
 bound book. Domain augmentation bridges this gap by transforming clean renders
-on-the-fly during training so the model learns to handle real-world conditions.</p><h2 id=how-it-works>How It Works</h2><p>Each training image passes through 15 independent transforms, each with its
+on-the-fly during training so the model learns to handle real-world conditions.</p>
+<h2 id="how-it-works">How It Works</h2>
+<p>Each training image passes through 15 independent transforms, each with its
 own probability. On average, ~6-7 transforms fire per image. The transforms
 are applied using OpenCV and NumPy, with a seeded random generator for
-reproducibility.</p><p>The augmentation pipeline runs <strong>on-the-fly</strong> during training (not as a
+reproducibility.</p>
+<p>The augmentation pipeline runs <strong>on-the-fly</strong> during training (not as a
 preprocessing step), so each epoch sees different augmented versions of the
 same clean source images. This effectively multiplies the training data
-diversity without storing augmented copies on disk.</p><h2 id=transform-catalog>Transform Catalog</h2><h3 id=substrate-simulating-aged-parchment>Substrate (simulating aged parchment)</h3><table><thead><tr><th>Transform</th><th>Probability</th><th>Description</th></tr></thead><tbody><tr><td><strong>Parchment texture</strong></td><td>80%</td><td>Blends one of 34 real parchment texture patches onto the image background. Stronger on light areas (background), weaker on dark areas (ink)</td></tr><tr><td><strong>Aging tint</strong></td><td>60%</td><td>Adds a warm yellowish tint simulating centuries of oxidation</td></tr><tr><td><strong>Foxing</strong></td><td>30%</td><td>Scatters small brownish spots simulating fungal damage</td></tr><tr><td><strong>Water stains</strong></td><td>15%</td><td>Adds a large semi-transparent elliptical blob with irregular edges</td></tr></tbody></table><h3 id=ink-appearance>Ink appearance</h3><table><thead><tr><th>Transform</th><th>Probability</th><th>Description</th></tr></thead><tbody><tr><td><strong>Ink fade</strong></td><td>20%</td><td>Reduces contrast and lightens dark pixels, simulating aged ink</td></tr><tr><td><strong>Staff hue shift</strong></td><td>30%</td><td>Shifts the hue of red staff lines, simulating different ink batches or aging</td></tr><tr><td><strong>Ink bleeding</strong></td><td>15%</td><td>Oriented morphological dilation simulating ink spreading along parchment fibers</td></tr><tr><td><strong>Ink thickness variation</strong></td><td>15%</td><td>Gradient-weighted erosion/dilation simulating varying quill pressure across the page</td></tr></tbody></table><h3 id=degradation>Degradation</h3><table><thead><tr><th>Transform</th><th>Probability</th><th>Description</th></tr></thead><tbody><tr><td><strong>Iron gall corrosion</strong></td><td>10%</td><td>Adds brownish halos around dark ink regions, simulating iron gall ink eating through parchment</td></tr><tr><td><strong>Salt deposits</strong></td><td>5%</td><td>Adds small white-ish mineral deposit patches</td></tr></tbody></table><h3 id=photography-simulating-camera-artifacts>Photography (simulating camera artifacts)</h3><table><thead><tr><th>Transform</th><th>Probability</th><th>Description</th></tr></thead><tbody><tr><td><strong>Perspective skew</strong></td><td>30%</td><td>Applies a slight perspective warp simulating a non-perpendicular camera angle</td></tr><tr><td><strong>Uneven lighting</strong></td><td>50%</td><td>Applies a brightness gradient (left-right, top-bottom, or radial) simulating uneven illumination</td></tr><tr><td><strong>Shadow</strong></td><td>30%</td><td>Adds a shadow gradient from one edge, simulating a book spine or photographer&rsquo;s hand</td></tr><tr><td><strong>Barrel distortion</strong></td><td>15%</td><td>Applies barrel or pincushion lens distortion</td></tr></tbody></table><h3 id=compression>Compression</h3><table><thead><tr><th>Transform</th><th>Probability</th><th>Description</th></tr></thead><tbody><tr><td><strong>JPEG artifacts</strong></td><td>50%</td><td>Encodes and decodes as JPEG at a random quality level (60-95), introducing compression artifacts</td></tr></tbody></table><h2 id=parchment-texture-patches>Parchment Texture Patches</h2><p>The parchment texture transform uses 34 real photographs of parchment
+diversity without storing augmented copies on disk.</p>
+<h2 id="transform-catalog">Transform Catalog</h2>
+<h3 id="substrate-simulating-aged-parchment">Substrate (simulating aged parchment)</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Transform</th>
+          <th>Probability</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>Parchment texture</strong></td>
+          <td>80%</td>
+          <td>Blends one of 34 real parchment texture patches onto the image background. Stronger on light areas (background), weaker on dark areas (ink)</td>
+      </tr>
+      <tr>
+          <td><strong>Aging tint</strong></td>
+          <td>60%</td>
+          <td>Adds a warm yellowish tint simulating centuries of oxidation</td>
+      </tr>
+      <tr>
+          <td><strong>Foxing</strong></td>
+          <td>30%</td>
+          <td>Scatters small brownish spots simulating fungal damage</td>
+      </tr>
+      <tr>
+          <td><strong>Water stains</strong></td>
+          <td>15%</td>
+          <td>Adds a large semi-transparent elliptical blob with irregular edges</td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="ink-appearance">Ink appearance</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Transform</th>
+          <th>Probability</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>Ink fade</strong></td>
+          <td>20%</td>
+          <td>Reduces contrast and lightens dark pixels, simulating aged ink</td>
+      </tr>
+      <tr>
+          <td><strong>Staff hue shift</strong></td>
+          <td>30%</td>
+          <td>Shifts the hue of red staff lines, simulating different ink batches or aging</td>
+      </tr>
+      <tr>
+          <td><strong>Ink bleeding</strong></td>
+          <td>15%</td>
+          <td>Oriented morphological dilation simulating ink spreading along parchment fibers</td>
+      </tr>
+      <tr>
+          <td><strong>Ink thickness variation</strong></td>
+          <td>15%</td>
+          <td>Gradient-weighted erosion/dilation simulating varying quill pressure across the page</td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="degradation">Degradation</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Transform</th>
+          <th>Probability</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>Iron gall corrosion</strong></td>
+          <td>10%</td>
+          <td>Adds brownish halos around dark ink regions, simulating iron gall ink eating through parchment</td>
+      </tr>
+      <tr>
+          <td><strong>Salt deposits</strong></td>
+          <td>5%</td>
+          <td>Adds small white-ish mineral deposit patches</td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="photography-simulating-camera-artifacts">Photography (simulating camera artifacts)</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Transform</th>
+          <th>Probability</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>Perspective skew</strong></td>
+          <td>30%</td>
+          <td>Applies a slight perspective warp simulating a non-perpendicular camera angle</td>
+      </tr>
+      <tr>
+          <td><strong>Uneven lighting</strong></td>
+          <td>50%</td>
+          <td>Applies a brightness gradient (left-right, top-bottom, or radial) simulating uneven illumination</td>
+      </tr>
+      <tr>
+          <td><strong>Shadow</strong></td>
+          <td>30%</td>
+          <td>Adds a shadow gradient from one edge, simulating a book spine or photographer&rsquo;s hand</td>
+      </tr>
+      <tr>
+          <td><strong>Barrel distortion</strong></td>
+          <td>15%</td>
+          <td>Applies barrel or pincushion lens distortion</td>
+      </tr>
+  </tbody>
+</table>
+<h3 id="compression">Compression</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Transform</th>
+          <th>Probability</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>JPEG artifacts</strong></td>
+          <td>50%</td>
+          <td>Encodes and decodes as JPEG at a random quality level (60-95), introducing compression artifacts</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="parchment-texture-patches">Parchment Texture Patches</h2>
+<p>The parchment texture transform uses 34 real photographs of parchment
 surfaces, cropped and stored as JPEG patches in <code>data/textures/</code>. These were
 photographed from actual historical manuscripts and books, providing authentic
-surface textures that no procedural generator can replicate.</p><p>The texture is blended more strongly on lighter pixels (background) and more
+surface textures that no procedural generator can replicate.</p>
+<p>The texture is blended more strongly on lighter pixels (background) and more
 weakly on darker pixels (ink), preserving readability while giving the image
-a convincing aged appearance.</p><h2 id=configuration>Configuration</h2><p>All probabilities and intensity ranges are configurable via
+a convincing aged appearance.</p>
+<h2 id="configuration">Configuration</h2>
+<p>All probabilities and intensity ranges are configurable via
 <code>AugmentationConfig</code> in <code>chant_omr/data/augmentation.py</code>. The defaults are
-tuned for a good balance between diversity and readability.</p><p>To disable augmentation entirely, set <code>augment: false</code> in
+tuned for a good balance between diversity and readability.</p>
+<p>To disable augmentation entirely, set <code>augment: false</code> in
 <code>configs/default.yaml</code>. Augmentation only applies to the training split;
-the validation split always uses clean images.</p><h2 id=performance-notes>Performance Notes</h2><p>The 15 transforms are CPU-bound (OpenCV/NumPy). With <code>num_workers: 0</code> in
+the validation split always uses clean images.</p>
+<h2 id="performance-notes">Performance Notes</h2>
+<p>The 15 transforms are CPU-bound (OpenCV/NumPy). With <code>num_workers: 0</code> in
 the DataLoader, augmentation runs in the main process and can cause ~4x
 slower epoch times. Setting <code>num_workers: 4</code> (or higher on bare metal)
-allows parallel augmentation across CPU cores.</p><p>In containerized environments (e.g., QuickPod), the default <code>/dev/shm</code> is
+allows parallel augmentation across CPU cores.</p>
+<p>In containerized environments (e.g., QuickPod), the default <code>/dev/shm</code> is
 too small for PyTorch multiprocessing. See the
-<a href=/chant-omr/docs/training-guide/>Training Guide</a> for how to create a
-custom template with <code>--shm-size=2g</code>.</p></main></div><script src=/chant-omr/js/slider.js></script></body></html>
+<a href="/chant-omr/docs/training-guide/">Training Guide</a> for how to create a
+custom template with <code>--shm-size=2g</code>.</p>
+
+  </main>
+</div>
+
+
+  <script src="/chant-omr/js/slider.js"></script>
+</body>
+</html>

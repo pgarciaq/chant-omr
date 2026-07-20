@@ -1,32 +1,271 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Architecture — ChantOMR</title><meta name=description content="End-to-end Optical Music Recognition for Gregorian chant square notation"><link rel=preconnect href=https://fonts.googleapis.com><link rel=preconnect href=https://fonts.gstatic.com crossorigin><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel=stylesheet><link rel=stylesheet href=/chant-omr/css/style.css></head><body><nav class=site-nav><div class=nav-inner><a href=/ class=nav-brand>ChantOMR</a><ul class=nav-links><li><a href=/chant-omr/docs/>Docs</a></li><li><a href=/#features>Features</a></li><li><a href=/#pipeline>Pipeline</a></li><li><a href=https://github.com/pgarciaq/chant-omr target=_blank>GitHub</a></li></ul></div></nav><div class=docs-layout><aside class=docs-sidebar><h3 class=sidebar-title>Documentation</h3><ul class=sidebar-nav><li><a href=/chant-omr/docs/tutorial/>Tutorial</a></li><li><a href=/chant-omr/docs/cli-reference/>CLI Reference</a></li><li><a href=/chant-omr/docs/architecture/ class=active>Architecture</a></li><li><a href=/chant-omr/docs/augmentation/>Data Augmentation</a></li><li><a href=/chant-omr/docs/training-guide/>Training Guide</a></li><li><a href=/chant-omr/docs/design-decisions/>Design Decisions</a></li></ul><a href=/ class=sidebar-back>&larr; Back to home</a></aside><main class=docs-content><h1 class=docs-page-title>Architecture</h1><p>ChantOMR uses a vision-encoder-decoder architecture: the image goes in,
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture — ChantOMR</title>
+  <meta name="description" content="End-to-end Optical Music Recognition for Gregorian chant square notation">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/chant-omr/css/style.css">
+</head>
+<body>
+  
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">ChantOMR</a>
+    <ul class="nav-links">
+      <li><a href="/chant-omr/docs/">Docs</a></li>
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/#pipeline">Pipeline</a></li>
+      <li><a href="https://github.com/pgarciaq/chant-omr" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <h3 class="sidebar-title">Documentation</h3>
+    <ul class="sidebar-nav">
+      
+        <li>
+          <a href="/chant-omr/docs/tutorial/"
+             >
+            Tutorial
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/cli-reference/"
+             >
+            CLI Reference
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/architecture/"
+             class="active">
+            Architecture
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/augmentation/"
+             >
+            Data Augmentation
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/training-guide/"
+             >
+            Training Guide
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/design-decisions/"
+             >
+            Design Decisions
+          </a>
+        </li>
+      
+    </ul>
+    <a href="/" class="sidebar-back">&larr; Back to home</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1 class="docs-page-title">Architecture</h1>
+    <p>ChantOMR uses a vision-encoder-decoder architecture: the image goes in,
 autoregressive GABC tokens come out. There are no intermediate stages
-(no staff detection, no symbol segmentation, no classification pipeline).</p><h2 id=overview>Overview</h2><table><thead><tr><th>Component</th><th>Implementation</th><th>Parameters</th></tr></thead><tbody><tr><td>Encoder</td><td>ConvNeXt-V2 Tiny</td><td>28.6M</td></tr><tr><td>Projector</td><td>2D sinusoidal + MLP</td><td>~0.8M</td></tr><tr><td>Decoder</td><td>Transformer (Pre-LN, RoPE)</td><td>~29.8M</td></tr><tr><td><strong>Total</strong></td><td></td><td><strong>~59M</strong></td></tr></tbody></table><h2 id=encoder-convnext-v2-tiny>Encoder: ConvNeXt-V2 Tiny</h2><p>The encoder is a ConvNeXt-V2 Tiny backbone (<code>convnextv2_tiny.fcmae_ft_in22k_in1k</code>)
-from the <code>timm</code> library, pretrained on ImageNet.</p><p><strong>Input:</strong> Score images at width 1050, variable height. Images are
-ImageNet-normalized (mean/std per channel).</p><p><strong>Output:</strong> A grid of feature patches at stride 32, with dimension 768.
-For a 1050×H image, the patch grid is approximately 33×(H/32) patches.</p><p>The variable-height design avoids padding and information loss. See
-<a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0002-variable-height-patch-grid.md>ADR-0002</a>.</p><h2 id=projector-2d-sinusoidal--mlp>Projector: 2D Sinusoidal + MLP</h2><p>The encoder outputs are 768-dimensional; the decoder expects 512-dimensional
-input. The projector bridges them:</p><ol><li><strong>2D sinusoidal positional encoding</strong> adds spatial awareness (row and
-column position in the patch grid)</li><li><strong>MLP</strong> projects 768 → 512 dimensions</li></ol><p>See <a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0009-mlp-projector-and-2d-sinusoidal-bridge.md>ADR-0009</a>.</p><h2 id=decoder-transformer-with-rope>Decoder: Transformer with RoPE</h2><p>An 8-layer Transformer decoder with:</p><table><thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody><tr><td><code>d_model</code></td><td>512</td></tr><tr><td><code>n_heads</code></td><td>8</td></tr><tr><td><code>d_ff</code></td><td>1024</td></tr><tr><td><code>dropout</code></td><td>0.1</td></tr><tr><td><code>max_seq_len</code></td><td>8192</td></tr><tr><td>Positional encoding</td><td>RoPE (Rotary Position Embedding)</td></tr><tr><td>Normalization</td><td>Pre-LayerNorm</td></tr></tbody></table><p>The decoder uses <strong>causal self-attention</strong> (each token attends only to
+(no staff detection, no symbol segmentation, no classification pipeline).</p>
+<h2 id="overview">Overview</h2>
+<table>
+  <thead>
+      <tr>
+          <th>Component</th>
+          <th>Implementation</th>
+          <th>Parameters</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>Encoder</td>
+          <td>ConvNeXt-V2 Tiny</td>
+          <td>28.6M</td>
+      </tr>
+      <tr>
+          <td>Projector</td>
+          <td>2D sinusoidal + MLP</td>
+          <td>~0.8M</td>
+      </tr>
+      <tr>
+          <td>Decoder</td>
+          <td>Transformer (Pre-LN, RoPE)</td>
+          <td>~29.8M</td>
+      </tr>
+      <tr>
+          <td><strong>Total</strong></td>
+          <td></td>
+          <td><strong>~59M</strong></td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="encoder-convnext-v2-tiny">Encoder: ConvNeXt-V2 Tiny</h2>
+<p>The encoder is a ConvNeXt-V2 Tiny backbone (<code>convnextv2_tiny.fcmae_ft_in22k_in1k</code>)
+from the <code>timm</code> library, pretrained on ImageNet.</p>
+<p><strong>Input:</strong> Score images at width 1050, variable height. Images are
+ImageNet-normalized (mean/std per channel).</p>
+<p><strong>Output:</strong> A grid of feature patches at stride 32, with dimension 768.
+For a 1050×H image, the patch grid is approximately 33×(H/32) patches.</p>
+<p>The variable-height design avoids padding and information loss. See
+<a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0002-variable-height-patch-grid.md">ADR-0002</a>.</p>
+<h2 id="projector-2d-sinusoidal--mlp">Projector: 2D Sinusoidal + MLP</h2>
+<p>The encoder outputs are 768-dimensional; the decoder expects 512-dimensional
+input. The projector bridges them:</p>
+<ol>
+<li><strong>2D sinusoidal positional encoding</strong> adds spatial awareness (row and
+column position in the patch grid)</li>
+<li><strong>MLP</strong> projects 768 → 512 dimensions</li>
+</ol>
+<p>See <a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0009-mlp-projector-and-2d-sinusoidal-bridge.md">ADR-0009</a>.</p>
+<h2 id="decoder-transformer-with-rope">Decoder: Transformer with RoPE</h2>
+<p>An 8-layer Transformer decoder with:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Parameter</th>
+          <th>Value</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>d_model</code></td>
+          <td>512</td>
+      </tr>
+      <tr>
+          <td><code>n_heads</code></td>
+          <td>8</td>
+      </tr>
+      <tr>
+          <td><code>d_ff</code></td>
+          <td>1024</td>
+      </tr>
+      <tr>
+          <td><code>dropout</code></td>
+          <td>0.1</td>
+      </tr>
+      <tr>
+          <td><code>max_seq_len</code></td>
+          <td>8192</td>
+      </tr>
+      <tr>
+          <td>Positional encoding</td>
+          <td>RoPE (Rotary Position Embedding)</td>
+      </tr>
+      <tr>
+          <td>Normalization</td>
+          <td>Pre-LayerNorm</td>
+      </tr>
+  </tbody>
+</table>
+<p>The decoder uses <strong>causal self-attention</strong> (each token attends only to
 previous tokens) and <strong>cross-attention</strong> to the encoder output. At inference
 time, a <strong>KV cache</strong> enables O(n) autoregressive generation instead of
-O(n²).</p><p>See <a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0006-transcoda-decoder-architecture.md>ADR-0006</a>.</p><h2 id=tokenizer-bpe-on-gabc-bodies>Tokenizer: BPE on GABC Bodies</h2><p>A Byte Pair Encoding tokenizer trained on the notation bodies of ~20,000
-GregoBase GABC files. The vocabulary is ~2000 tokens.</p><p>GABC headers (name, mode, book, etc.) are stripped — the tokenizer operates
-only on the notation body (the part after <code>%%</code>).</p><p>Special tokens: <code>&lt;bos></code> (beginning of sequence), <code>&lt;eos></code> (end of sequence),
-<code>&lt;pad></code> (padding).</p><p>See <a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-bpe-body-only-tokenizer.md>ADR-0003</a>.</p><h2 id=training>Training</h2><ul><li><strong>Loss:</strong> Teacher-forcing cross-entropy
-(<a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0011-teacher-forcing-cross-entropy-loss.md>ADR-0011</a>)</li><li><strong>Optimizer:</strong> AdamW (lr=1e-4, weight_decay=0.05)</li><li><strong>Precision:</strong> bf16-mixed on Ampere+ GPUs</li><li><strong>Batch size:</strong> 2 (effective 8 via gradient accumulation)</li><li><strong>Early stopping:</strong> patience=10 epochs, halts training when val_loss
-plateaus (min_delta=0.001)</li><li><strong>Domain augmentation:</strong> 13 on-the-fly OpenCV transforms simulate aged
-manuscripts. See the <a href=/chant-omr/docs/augmentation/>Augmentation Guide</a>.</li><li><strong>Framework:</strong> PyTorch Lightning</li></ul><h2 id=inference>Inference</h2><ul><li><strong>Greedy decode</strong> with KV cache for O(n) autoregressive generation (default)</li><li><strong>Beam search</strong> (configurable beam width, default 3)</li><li><strong>Grammar-constrained decoding:</strong> Optional balanced-parenthesis mask
+O(n²).</p>
+<p>See <a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0006-transcoda-decoder-architecture.md">ADR-0006</a>.</p>
+<h2 id="tokenizer-bpe-on-gabc-bodies">Tokenizer: BPE on GABC Bodies</h2>
+<p>A Byte Pair Encoding tokenizer trained on the notation bodies of ~20,000
+GregoBase GABC files. The vocabulary is ~2000 tokens.</p>
+<p>GABC headers (name, mode, book, etc.) are stripped — the tokenizer operates
+only on the notation body (the part after <code>%%</code>).</p>
+<p>Special tokens: <code>&lt;bos&gt;</code> (beginning of sequence), <code>&lt;eos&gt;</code> (end of sequence),
+<code>&lt;pad&gt;</code> (padding).</p>
+<p>See <a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-bpe-body-only-tokenizer.md">ADR-0003</a>.</p>
+<h2 id="training">Training</h2>
+<ul>
+<li><strong>Loss:</strong> Teacher-forcing cross-entropy
+(<a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0011-teacher-forcing-cross-entropy-loss.md">ADR-0011</a>)</li>
+<li><strong>Optimizer:</strong> AdamW (lr=1e-4, weight_decay=0.05)</li>
+<li><strong>Precision:</strong> bf16-mixed on Ampere+ GPUs</li>
+<li><strong>Batch size:</strong> 2 (effective 8 via gradient accumulation)</li>
+<li><strong>Early stopping:</strong> patience=10 epochs, halts training when val_loss
+plateaus (min_delta=0.001)</li>
+<li><strong>Domain augmentation:</strong> 13 on-the-fly OpenCV transforms simulate aged
+manuscripts. See the <a href="/chant-omr/docs/augmentation/">Augmentation Guide</a>.</li>
+<li><strong>Framework:</strong> PyTorch Lightning</li>
+</ul>
+<h2 id="inference">Inference</h2>
+<ul>
+<li><strong>Greedy decode</strong> with KV cache for O(n) autoregressive generation (default)</li>
+<li><strong>Beam search</strong> (configurable beam width, default 3)</li>
+<li><strong>Grammar-constrained decoding:</strong> Optional balanced-parenthesis mask
 prevents structurally invalid GABC. Supports hard masking (<code>-inf</code>) or
-soft penalty mode (configurable finite penalty, e.g. <code>-10.0</code>)</li><li><strong>Encoding-equivalence normalization:</strong> Gregorio round-trip normalizes
+soft penalty mode (configurable finite penalty, e.g. <code>-10.0</code>)</li>
+<li><strong>Encoding-equivalence normalization:</strong> Gregorio round-trip normalizes
 predictions and references before metric computation, ensuring fair
-comparison across equivalent GABC encodings</li><li><strong>Gregorio compilation check:</strong> Gold-standard structural validation by
-compiling predictions through the Gregorio binary</li><li><strong>Dual-path decoding:</strong> Greedy decoding uses a fast KV-cached path
+comparison across equivalent GABC encodings</li>
+<li><strong>Gregorio compilation check:</strong> Gold-standard structural validation by
+compiling predictions through the Gregorio binary</li>
+<li><strong>Dual-path decoding:</strong> Greedy decoding uses a fast KV-cached path
 (<code>decoder_init</code> + <code>decoder_step</code>); beam search uses a non-cached
-<code>decoder</code> model that recomputes attention each step for correctness</li><li><strong>ONNX export</strong> (primary) for deployment on any hardware via ONNX Runtime.
+<code>decoder</code> model that recomputes attention each step for correctness</li>
+<li><strong>ONNX export</strong> (primary) for deployment on any hardware via ONNX Runtime.
 Exports four decoder variants: <code>decoder.onnx</code> (non-cached, beam search),
 <code>decoder_init.onnx</code> (first cached step), and <code>decoder_step.onnx</code>
 (subsequent cached steps). KV cache uses 4 stacked tensors
-<code>(n_layers, B, H, S, head_dim)</code> for clean ONNX I/O</li><li><strong>OpenVINO export</strong> for accelerated inference on Intel Arc GPUs and NPUs.
+<code>(n_layers, B, H, S, head_dim)</code> for clean ONNX I/O</li>
+<li><strong>OpenVINO export</strong> for accelerated inference on Intel Arc GPUs and NPUs.
 Same four-model layout: <code>encoder.xml</code>, <code>decoder.xml</code> (non-cached),
 <code>decoder_init.xml</code> (cached init), <code>decoder_step.xml</code> (cached step)
-(<a href=https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md>ADR-0012</a>)</li></ul></main></div><script src=/chant-omr/js/slider.js></script></body></html>
+(<a href="https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md">ADR-0012</a>)</li>
+</ul>
+<h2 id="ghh-integration-api">ghh Integration API</h2>
+<p>ChantOMR exposes a numpy-array API for integration with
+<a href="https://pgarciaq.github.io/ghh/">Guido&rsquo;s Helping Hand</a> (ghh), which
+uses it in Stage 14 (OMR) to transcribe music pages.</p>
+<table>
+  <thead>
+      <tr>
+          <th>Function</th>
+          <th>Module</th>
+          <th>Purpose</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>prepare_inference_numpy_from_array()</code></td>
+          <td><code>preprocess</code></td>
+          <td>Convert an in-memory <code>(H, W, 3)</code> uint8 image to <code>(1, 3, H, W)</code> float32</td>
+      </tr>
+      <tr>
+          <td><code>load_openvino_models()</code></td>
+          <td><code>ov_decode</code></td>
+          <td>Load and compile all OpenVINO IRs, returns an <code>OvModelBundle</code></td>
+      </tr>
+      <tr>
+          <td><code>ov_predict_gabc_from_array()</code></td>
+          <td><code>ov_decode</code></td>
+          <td>Run inference on a preprocessed array using a pre-loaded <code>OvModelBundle</code></td>
+      </tr>
+  </tbody>
+</table>
+<p>The <code>OvModelBundle</code> dataclass holds the compiled encoder, decoder (cached
+and non-cached), manifest, and tokenizer. Loading models once and reusing
+the bundle across many images avoids repeated compilation overhead.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> chant_omr.inference.ov_decode <span style="color:#f92672">import</span> load_openvino_models, ov_predict_gabc_from_array
+</span></span><span style="display:flex;"><span><span style="color:#f92672">from</span> chant_omr.inference.preprocess <span style="color:#f92672">import</span> prepare_inference_numpy_from_array
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>models <span style="color:#f92672">=</span> load_openvino_models(Path(<span style="color:#e6db74">&#34;models/&#34;</span>), device<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;AUTO&#34;</span>)
+</span></span><span style="display:flex;"><span>pixels <span style="color:#f92672">=</span> prepare_inference_numpy_from_array(rgb_array)
+</span></span><span style="display:flex;"><span>gabc <span style="color:#f92672">=</span> ov_predict_gabc_from_array(pixels, models, beam_width<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>, name<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;page_042&#34;</span>)
+</span></span></code></pre></div>
+  </main>
+</div>
+
+
+  <script src="/chant-omr/js/slider.js"></script>
+</body>
+</html>

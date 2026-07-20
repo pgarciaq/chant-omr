@@ -1,49 +1,271 @@
-<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Training Guide — ChantOMR</title><meta name=description content="End-to-end Optical Music Recognition for Gregorian chant square notation"><link rel=preconnect href=https://fonts.googleapis.com><link rel=preconnect href=https://fonts.gstatic.com crossorigin><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel=stylesheet><link rel=stylesheet href=/chant-omr/css/style.css></head><body><nav class=site-nav><div class=nav-inner><a href=/ class=nav-brand>ChantOMR</a><ul class=nav-links><li><a href=/chant-omr/docs/>Docs</a></li><li><a href=/#features>Features</a></li><li><a href=/#pipeline>Pipeline</a></li><li><a href=https://github.com/pgarciaq/chant-omr target=_blank>GitHub</a></li></ul></div></nav><div class=docs-layout><aside class=docs-sidebar><h3 class=sidebar-title>Documentation</h3><ul class=sidebar-nav><li><a href=/chant-omr/docs/tutorial/>Tutorial</a></li><li><a href=/chant-omr/docs/cli-reference/>CLI Reference</a></li><li><a href=/chant-omr/docs/architecture/>Architecture</a></li><li><a href=/chant-omr/docs/augmentation/>Data Augmentation</a></li><li><a href=/chant-omr/docs/training-guide/ class=active>Training Guide</a></li><li><a href=/chant-omr/docs/design-decisions/>Design Decisions</a></li></ul><a href=/ class=sidebar-back>&larr; Back to home</a></aside><main class=docs-content><h1 class=docs-page-title>Training Guide</h1><p>This is a condensed version of the full
-<a href=https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md>TRAINING-PLAN.md</a>.</p><h2 id=recommended-cloud-gpu-quickpod>Recommended: Cloud GPU (QuickPod)</h2><p>The cheapest path. The model is ~59M params and the dataset is <del>20k images.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training Guide — ChantOMR</title>
+  <meta name="description" content="End-to-end Optical Music Recognition for Gregorian chant square notation">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/chant-omr/css/style.css">
+</head>
+<body>
+  
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">ChantOMR</a>
+    <ul class="nav-links">
+      <li><a href="/chant-omr/docs/">Docs</a></li>
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/#pipeline">Pipeline</a></li>
+      <li><a href="https://github.com/pgarciaq/chant-omr" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <h3 class="sidebar-title">Documentation</h3>
+    <ul class="sidebar-nav">
+      
+        <li>
+          <a href="/chant-omr/docs/tutorial/"
+             >
+            Tutorial
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/cli-reference/"
+             >
+            CLI Reference
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/architecture/"
+             >
+            Architecture
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/augmentation/"
+             >
+            Data Augmentation
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/training-guide/"
+             class="active">
+            Training Guide
+          </a>
+        </li>
+      
+        <li>
+          <a href="/chant-omr/docs/design-decisions/"
+             >
+            Design Decisions
+          </a>
+        </li>
+      
+    </ul>
+    <a href="/" class="sidebar-back">&larr; Back to home</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1 class="docs-page-title">Training Guide</h1>
+    <p>This is a condensed version of the full
+<a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md</a>.</p>
+<h2 id="recommended-cloud-gpu-quickpod">Recommended: Cloud GPU (QuickPod)</h2>
+<p>The cheapest path. The model is ~59M params and the dataset is <del>20k images.
 Training takes <strong>~24 hours on a 16 GB GPU</strong> and costs **</del>$4-12** depending
-on GPU and provider.</p><h3 id=gpu-recommendations>GPU recommendations</h3><table><thead><tr><th>GPU</th><th>$/hr</th><th>VRAM</th><th>Est. total</th></tr></thead><tbody><tr><td>RTX 5080</td><td>$0.16</td><td>16 GB</td><td>~$4</td></tr><tr><td>RTX 5090</td><td>$0.50</td><td>32 GB</td><td>~$6</td></tr><tr><td>A100 PCIe</td><td>$0.39</td><td>40 GB</td><td>~$5-9</td></tr></tbody></table><p>Any GPU with <strong>Ampere or newer</strong> architecture and <strong>16+ GB VRAM</strong> works
+on GPU and provider.</p>
+<h3 id="gpu-recommendations">GPU recommendations</h3>
+<table>
+  <thead>
+      <tr>
+          <th>GPU</th>
+          <th>$/hr</th>
+          <th>VRAM</th>
+          <th>Est. total</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>RTX 5080</td>
+          <td>$0.16</td>
+          <td>16 GB</td>
+          <td>~$4</td>
+      </tr>
+      <tr>
+          <td>RTX 5090</td>
+          <td>$0.50</td>
+          <td>32 GB</td>
+          <td>~$6</td>
+      </tr>
+      <tr>
+          <td>A100 PCIe</td>
+          <td>$0.39</td>
+          <td>40 GB</td>
+          <td>~$5-9</td>
+      </tr>
+  </tbody>
+</table>
+<p>Any GPU with <strong>Ampere or newer</strong> architecture and <strong>16+ GB VRAM</strong> works
 with the default config (<code>batch_size: 2</code>, <code>accumulate_grad_batches: 4</code>,
-effective batch size 8).</p><h3 id=quick-start>Quick start</h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># SSH into the pod</span>
-</span></span><span style=display:flex><span>ssh root@INSTANCE_IP -p <span style=color:#ae81ff>34200</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Install Python 3.13 (QuickPod ships 3.10)</span>
-</span></span><span style=display:flex><span>apt update <span style=color:#f92672>&amp;&amp;</span> apt install software-properties-common -y
-</span></span><span style=display:flex><span>add-apt-repository ppa:deadsnakes/ppa -y <span style=color:#f92672>&amp;&amp;</span> apt update
-</span></span><span style=display:flex><span>apt install python3.13 python3.13-venv python3.13-dev -y
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Clone, create venv, install</span>
-</span></span><span style=display:flex><span>git clone https://github.com/pgarciaq/chant-omr.git <span style=color:#f92672>&amp;&amp;</span> cd chant-omr
-</span></span><span style=display:flex><span>python3.13 -m venv .venv <span style=color:#f92672>&amp;&amp;</span> source .venv/bin/activate
-</span></span><span style=display:flex><span>pip install --upgrade pip <span style=color:#f92672>&amp;&amp;</span> pip install -e <span style=color:#e6db74>&#34;.[dev]&#34;</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Transfer dataset from your laptop (run on LAPTOP, not pod)</span>
-</span></span><span style=display:flex><span>rsync -avz --progress -e <span style=color:#e6db74>&#39;ssh -p 34200&#39;</span> <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span><span style=color:#ae81ff></span>  data/gregobase/ data/rendered/ data/tokenizer/ <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span><span style=color:#ae81ff></span>  root@INSTANCE_IP:~/chant-omr/data/
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Train (on the pod, inside tmux)</span>
-</span></span><span style=display:flex><span>tmux new -s train
-</span></span><span style=display:flex><span>source .venv/bin/activate
-</span></span><span style=display:flex><span>python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs <span style=color:#ae81ff>50</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Copy best checkpoint back (run on LAPTOP)</span>
-</span></span><span style=display:flex><span>scp -P <span style=color:#ae81ff>34200</span> root@INSTANCE_IP:~/chant-omr/checkpoints/best.ckpt <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span><span style=color:#ae81ff></span>  ~/dev/lpacleaner/chant-omr/checkpoints/
-</span></span></code></pre></div><h3 id=known-constraints>Known constraints</h3><table><thead><tr><th>Constraint</th><th>Workaround</th></tr></thead><tbody><tr><td><code>/dev/shm</code> too small</td><td>Create a custom QuickPod template with <code>--shm-size=2g</code> in Docker Options (see below)</td></tr><tr><td>16 GB VRAM OOM</td><td><code>batch_size: 2</code> + <code>accumulate_grad_batches: 4</code></td></tr><tr><td>Python 3.10 only</td><td>Install Python 3.13 from deadsnakes</td></tr><tr><td>SSH port 34200</td><td><code>-p 34200</code> for ssh, <code>-P 34200</code> for scp</td></tr></tbody></table><p><strong>Custom QuickPod template (&ldquo;Pytorch Latest-largeSHM&rdquo;):</strong>
+effective batch size 8).</p>
+<h3 id="quick-start">Quick start</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># SSH into the pod</span>
+</span></span><span style="display:flex;"><span>ssh root@INSTANCE_IP -p <span style="color:#ae81ff">34200</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Install Python 3.13 (QuickPod ships 3.10)</span>
+</span></span><span style="display:flex;"><span>apt update <span style="color:#f92672">&amp;&amp;</span> apt install software-properties-common -y
+</span></span><span style="display:flex;"><span>add-apt-repository ppa:deadsnakes/ppa -y <span style="color:#f92672">&amp;&amp;</span> apt update
+</span></span><span style="display:flex;"><span>apt install python3.13 python3.13-venv python3.13-dev -y
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Clone, create venv, install</span>
+</span></span><span style="display:flex;"><span>git clone https://github.com/pgarciaq/chant-omr.git <span style="color:#f92672">&amp;&amp;</span> cd chant-omr
+</span></span><span style="display:flex;"><span>python3.13 -m venv .venv <span style="color:#f92672">&amp;&amp;</span> source .venv/bin/activate
+</span></span><span style="display:flex;"><span>pip install --upgrade pip <span style="color:#f92672">&amp;&amp;</span> pip install -e <span style="color:#e6db74">&#34;.[dev]&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Transfer dataset from your laptop (run on LAPTOP, not pod)</span>
+</span></span><span style="display:flex;"><span>rsync -avz --progress -e <span style="color:#e6db74">&#39;ssh -p 34200&#39;</span> <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>  data/gregobase/ data/rendered/ data/tokenizer/ <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>  root@INSTANCE_IP:~/chant-omr/data/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Train (on the pod, inside tmux)</span>
+</span></span><span style="display:flex;"><span>tmux new -s train
+</span></span><span style="display:flex;"><span>source .venv/bin/activate
+</span></span><span style="display:flex;"><span>python scripts/train.py --accelerator cuda --precision bf16-mixed --epochs <span style="color:#ae81ff">50</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Copy best checkpoint back (run on LAPTOP)</span>
+</span></span><span style="display:flex;"><span>scp -P <span style="color:#ae81ff">34200</span> root@INSTANCE_IP:~/chant-omr/checkpoints/best.ckpt <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>  ~/dev/lpacleaner/chant-omr/checkpoints/
+</span></span></code></pre></div><h3 id="known-constraints">Known constraints</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Constraint</th>
+          <th>Workaround</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>/dev/shm</code> too small</td>
+          <td>Create a custom QuickPod template with <code>--shm-size=2g</code> in Docker Options (see below)</td>
+      </tr>
+      <tr>
+          <td>16 GB VRAM OOM</td>
+          <td><code>batch_size: 2</code> + <code>accumulate_grad_batches: 4</code></td>
+      </tr>
+      <tr>
+          <td>Python 3.10 only</td>
+          <td>Install Python 3.13 from deadsnakes</td>
+      </tr>
+      <tr>
+          <td>SSH port 34200</td>
+          <td><code>-p 34200</code> for ssh, <code>-P 34200</code> for scp</td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>Custom QuickPod template (&ldquo;Pytorch Latest-largeSHM&rdquo;):</strong>
 The default QuickPod <code>/dev/shm</code> is too small for PyTorch multiprocessing
 DataLoaders. With 13 augmentation transforms, <code>num_workers: 0</code> causes ~4x
-slower epochs. To fix this:</p><ol><li>In QuickPod, go to Templates and clone &ldquo;Pytorch Latest&rdquo;</li><li>Name the clone &ldquo;Pytorch Latest-largeSHM&rdquo;</li><li>In the <strong>Docker Options</strong> field, add: <code>--shm-size=2g</code></li><li>Save and use this template when creating pods</li></ol><p>This gives 2 GB of shared memory, enabling <code>num_workers: 4</code> in
-<code>configs/default.yaml</code> for parallel augmentation.</p><h2 id=alternative-bare-metal-nvidia-gpu>Alternative: Bare metal (NVIDIA GPU)</h2><p>For dedicated hardware (A100, H100, Grace Hopper), see the full
-<a href=https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md>TRAINING-PLAN.md</a>
-which covers RHEL 9 setup, NVIDIA driver installation, and CUDA configuration.</p><h2 id=configuration>Configuration</h2><p>Training parameters are in <code>configs/default.yaml</code>:</p><table><thead><tr><th>Parameter</th><th>Default</th><th>Notes</th></tr></thead><tbody><tr><td><code>batch_size</code></td><td>2</td><td>Fits 16 GB VRAM</td></tr><tr><td><code>accumulate_grad_batches</code></td><td>4</td><td>Effective batch size = 8</td></tr><tr><td><code>precision</code></td><td><code>bf16-mixed</code></td><td>Requires Ampere+ GPU</td></tr><tr><td><code>epochs</code></td><td>50</td><td>Ceiling; early stopping halts sooner</td></tr><tr><td><code>early_stopping.patience</code></td><td>10</td><td>Stop after 10 epochs with no val_loss improvement</td></tr><tr><td><code>learning_rate</code></td><td>1e-4</td><td></td></tr><tr><td><code>num_workers</code></td><td>4</td><td>Requires <code>--shm-size=2g</code> in container; set to 0 as fallback</td></tr><tr><td><code>augment</code></td><td><code>true</code></td><td>13 domain transforms applied on-the-fly during training</td></tr></tbody></table><h2 id=after-training>After Training</h2><ol><li>Copy the best checkpoint (lowest <code>val_loss</code>) to your development machine</li><li><strong>Terminate the cloud instance</strong> to stop billing</li><li>Run evaluation:<div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>chant-omr evaluate --checkpoint checkpoints/best.ckpt --gregorio-check
-</span></span></code></pre></div></li><li>Export for deployment:<div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># ONNX (primary — runs on any hardware via ONNX Runtime)</span>
-</span></span><span style=display:flex><span>pip install onnx onnxruntime   <span style=color:#75715e># if not already installed</span>
-</span></span><span style=display:flex><span>chant-omr export checkpoints/best.ckpt --format onnx --output-dir models/ --verify
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># OpenVINO (optional — optimized for Intel Arc GPUs and NPUs)</span>
-</span></span><span style=display:flex><span>pip install -e <span style=color:#e6db74>&#34;.[export]&#34;</span>    <span style=color:#75715e># installs openvino + nncf</span>
-</span></span><span style=display:flex><span>chant-omr export checkpoints/best.ckpt --format openvino --output-dir models/ --verify
+slower epochs. To fix this:</p>
+<ol>
+<li>In QuickPod, go to Templates and clone &ldquo;Pytorch Latest&rdquo;</li>
+<li>Name the clone &ldquo;Pytorch Latest-largeSHM&rdquo;</li>
+<li>In the <strong>Docker Options</strong> field, add: <code>--shm-size=2g</code></li>
+<li>Save and use this template when creating pods</li>
+</ol>
+<p>This gives 2 GB of shared memory, enabling <code>num_workers: 4</code> in
+<code>configs/default.yaml</code> for parallel augmentation.</p>
+<h2 id="alternative-bare-metal-nvidia-gpu">Alternative: Bare metal (NVIDIA GPU)</h2>
+<p>For dedicated hardware (A100, H100, Grace Hopper), see the full
+<a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md</a>
+which covers RHEL 9 setup, NVIDIA driver installation, and CUDA configuration.</p>
+<h2 id="configuration">Configuration</h2>
+<p>Training parameters are in <code>configs/default.yaml</code>:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Parameter</th>
+          <th>Default</th>
+          <th>Notes</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>batch_size</code></td>
+          <td>2</td>
+          <td>Fits 16 GB VRAM</td>
+      </tr>
+      <tr>
+          <td><code>accumulate_grad_batches</code></td>
+          <td>4</td>
+          <td>Effective batch size = 8</td>
+      </tr>
+      <tr>
+          <td><code>precision</code></td>
+          <td><code>bf16-mixed</code></td>
+          <td>Requires Ampere+ GPU</td>
+      </tr>
+      <tr>
+          <td><code>epochs</code></td>
+          <td>50</td>
+          <td>Ceiling; early stopping halts sooner</td>
+      </tr>
+      <tr>
+          <td><code>early_stopping.patience</code></td>
+          <td>10</td>
+          <td>Stop after 10 epochs with no val_loss improvement</td>
+      </tr>
+      <tr>
+          <td><code>learning_rate</code></td>
+          <td>1e-4</td>
+          <td></td>
+      </tr>
+      <tr>
+          <td><code>num_workers</code></td>
+          <td>4</td>
+          <td>Requires <code>--shm-size=2g</code> in container; set to 0 as fallback</td>
+      </tr>
+      <tr>
+          <td><code>augment</code></td>
+          <td><code>true</code></td>
+          <td>13 domain transforms applied on-the-fly during training</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="after-training">After Training</h2>
+<ol>
+<li>Copy the best checkpoint (lowest <code>val_loss</code>) to your development machine</li>
+<li><strong>Terminate the cloud instance</strong> to stop billing</li>
+<li>Run evaluation:
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr evaluate --checkpoint checkpoints/best.ckpt --gregorio-check
+</span></span></code></pre></div></li>
+<li>Export for deployment:
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># ONNX (primary — runs on any hardware via ONNX Runtime)</span>
+</span></span><span style="display:flex;"><span>pip install onnx onnxruntime   <span style="color:#75715e"># if not already installed</span>
+</span></span><span style="display:flex;"><span>chant-omr export checkpoints/best.ckpt --format onnx --output-dir models/ --verify
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># OpenVINO (optional — optimized for Intel Arc GPUs and NPUs)</span>
+</span></span><span style="display:flex;"><span>pip install -e <span style="color:#e6db74">&#34;.[export]&#34;</span>    <span style="color:#75715e"># installs openvino + nncf</span>
+</span></span><span style="display:flex;"><span>chant-omr export checkpoints/best.ckpt --format openvino --output-dir models/ --verify
 </span></span></code></pre></div>ONNX produces <code>encoder.onnx</code>, <code>decoder.onnx</code>, <code>decoder_init.onnx</code>,
 <code>decoder_step.onnx</code>, <code>tokenizer.json</code>, and <code>manifest.json</code>. OpenVINO
 produces the equivalent <code>.xml/.bin</code> IR files. The <code>--verify</code> flag runs
-numeric parity checks against the PyTorch model.</li></ol></main></div><script src=/chant-omr/js/slider.js></script></body></html>
+numeric parity checks against the PyTorch model.</li>
+</ol>
+
+  </main>
+</div>
+
+
+  <script src="/chant-omr/js/slider.js"></script>
+</body>
+</html>

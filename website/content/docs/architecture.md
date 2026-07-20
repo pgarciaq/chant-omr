@@ -113,3 +113,28 @@ See [ADR-0003](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-b
   Same four-model layout: `encoder.xml`, `decoder.xml` (non-cached),
   `decoder_init.xml` (cached init), `decoder_step.xml` (cached step)
   ([ADR-0012](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md))
+
+## ghh Integration API
+
+ChantOMR exposes a numpy-array API for integration with
+[Guido's Helping Hand](https://pgarciaq.github.io/ghh/) (ghh), which
+uses it in Stage 14 (OMR) to transcribe music pages.
+
+| Function | Module | Purpose |
+|----------|--------|---------|
+| `prepare_inference_numpy_from_array()` | `preprocess` | Convert an in-memory `(H, W, 3)` uint8 image to `(1, 3, H, W)` float32 |
+| `load_openvino_models()` | `ov_decode` | Load and compile all OpenVINO IRs, returns an `OvModelBundle` |
+| `ov_predict_gabc_from_array()` | `ov_decode` | Run inference on a preprocessed array using a pre-loaded `OvModelBundle` |
+
+The `OvModelBundle` dataclass holds the compiled encoder, decoder (cached
+and non-cached), manifest, and tokenizer. Loading models once and reusing
+the bundle across many images avoids repeated compilation overhead.
+
+```python
+from chant_omr.inference.ov_decode import load_openvino_models, ov_predict_gabc_from_array
+from chant_omr.inference.preprocess import prepare_inference_numpy_from_array
+
+models = load_openvino_models(Path("models/"), device="AUTO")
+pixels = prepare_inference_numpy_from_array(rgb_array)
+gabc = ov_predict_gabc_from_array(pixels, models, beam_width=1, name="page_042")
+```
