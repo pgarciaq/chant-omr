@@ -140,16 +140,12 @@ def predict(
     )
 
     if device == "onnx":
-        if bw > 1:
-            raise click.UsageError(
-                "Beam search is not supported with --device onnx (greedy only). "
-                "Use --beam-width 1 or a PyTorch backend for beam search."
-            )
         from chant_omr.inference.onnx_decode import onnx_predict_gabc
 
         gabc = onnx_predict_gabc(
             Path(image_path),
             Path(model_dir),
+            beam_width=bw,
             max_length=ml,
             repetition_penalty=rp,
             grammar_constrained=gc,
@@ -218,6 +214,7 @@ def export(checkpoint, fmt, config, output_dir, verify):
         from chant_omr.inference.export import (
             export_onnx,
             verify_onnx_decoder_init_parity,
+            verify_onnx_decoder_parity,
             verify_onnx_decoder_step_parity,
             verify_onnx_encoder_parity,
         )
@@ -225,13 +222,18 @@ def export(checkpoint, fmt, config, output_dir, verify):
         result_dir = export_onnx(ckpt, out, config_path=cfg)
         click.echo(f"ONNX models written to {result_dir}/")
         click.echo("  encoder.onnx")
-        click.echo("  decoder_init.onnx")
-        click.echo("  decoder_step.onnx")
+        click.echo("  decoder.onnx (non-cached, beam search)")
+        click.echo("  decoder_init.onnx (cached, greedy)")
+        click.echo("  decoder_step.onnx (cached, greedy)")
         if verify:
             enc_diff = verify_onnx_encoder_parity(
                 ckpt, result_dir / "encoder.onnx", config_path=cfg,
             )
             click.echo(f"Encoder parity passed (max abs diff: {enc_diff:.6e})")
+            dec_diff = verify_onnx_decoder_parity(
+                ckpt, result_dir / "decoder.onnx", config_path=cfg,
+            )
+            click.echo(f"Decoder parity passed (max abs diff: {dec_diff:.6e})")
             init_diff = verify_onnx_decoder_init_parity(
                 ckpt, result_dir / "decoder_init.onnx", config_path=cfg,
             )

@@ -1,8 +1,10 @@
-"""ONNX Runtime decode loop with KV-cached decoding (#51).
+"""ONNX Runtime decode loop with dual-path decoding (#51, #60).
 
-Loads encoder + decoder_init + decoder_step ONNX files and runs
-greedy decoding with auto execution-provider selection.  This is the
-inference path for ``chant-omr predict --device onnx``.
+Loads encoder + decoder (non-cached) + decoder_init/step (KV-cached) ONNX
+files and runs inference.  Greedy uses the O(n) cached path; beam search
+falls back to the O(n^2) non-cached decoder for correctness.
+
+This is the inference path for ``chant-omr predict --device onnx``.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import torch.nn.functional as F
 from chant_omr.inference.beam_search import (
     GrammarMask,
     LogitsFunc,
+    beam_search_decode_generic,
     build_paren_table,
     greedy_decode_generic,
 )
@@ -30,8 +33,8 @@ def load_onnx_models(
     model_dir: Path,
     *,
     providers: list[str] | None = None,
-) -> tuple[Any, Any, Any, dict[str, Any], GABCTokenizer]:
-    """Load three ONNX sessions, manifest, and tokenizer from *model_dir*.
+) -> tuple[Any, Any, Any, Any, dict[str, Any], GABCTokenizer]:
+    """Load four ONNX sessions, manifest, and tokenizer from *model_dir*.
 
     Args:
         model_dir: Directory produced by ``chant-omr export --format onnx``.
@@ -39,7 +42,11 @@ def load_onnx_models(
             ``ort.get_available_providers()`` for automatic selection.
 
     Returns:
-        ``(encoder_session, init_session, step_session, manifest, tokenizer)``
+        ``(encoder, decoder, decoder_init, decoder_step, manifest, tokenizer)``
+
+        The *decoder* is the non-cached session for beam search;
+        *decoder_init* and *decoder_step* are the KV-cached sessions
+        for greedy decoding.
     """
     import onnxruntime as ort
 
@@ -54,14 +61,16 @@ def load_onnx_models(
         providers = ort.get_available_providers()
 
     encoder_path = model_dir / "encoder.onnx"
+    decoder_path = model_dir / "decoder.onnx"
     init_path = model_dir / "decoder_init.onnx"
     step_path = model_dir / "decoder_step.onnx"
 
-    for p in (encoder_path, init_path, step_path):
+    for p in (encoder_path, decoder_path, init_path, step_path):
         if not p.is_file():
             raise FileNotFoundError(f"{p.name} not found in {model_dir}")
 
     encoder_session = ort.InferenceSession(str(encoder_path), providers=providers)
+    decoder_session = ort.InferenceSession(str(decoder_path), providers=providers)
     init_session = ort.InferenceSession(str(init_path), providers=providers)
     step_session = ort.InferenceSession(str(step_path), providers=providers)
 
@@ -70,7 +79,10 @@ def load_onnx_models(
         raise FileNotFoundError(f"tokenizer.json not found in {model_dir}")
     tokenizer = GABCTokenizer.load(tok_path)
 
-    return encoder_session, init_session, step_session, manifest, tokenizer
+    return (
+        encoder_session, decoder_session, init_session, step_session,
+        manifest, tokenizer,
+    )
 
 
 def onnx_encoder_infer(
@@ -80,6 +92,28 @@ def onnx_encoder_infer(
     """Run the ONNX encoder and return ``encoder_memory (1, N, d_model)``."""
     result = encoder_session.run(None, {"pixel_values": pixel_values_np})
     return result[0]
+
+
+def onnx_decoder_logits_func(
+    decoder_session: Any,
+    encoder_mask_np: np.ndarray,
+) -> LogitsFunc:
+    """Return a ``LogitsFunc`` backed by the non-cached ONNX decoder.
+
+    Used for beam search where the full ``input_ids`` sequence is passed
+    each step (O(n^2) but correct for variable-prefix beam candidates).
+    """
+
+    def _step(input_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
+        result = decoder_session.run(None, {
+            "input_ids": input_ids.cpu().numpy(),
+            "encoder_memory": memory.cpu().numpy(),
+            "encoder_mask": encoder_mask_np,
+        })
+        next_logits = torch.from_numpy(np.array(result[0]))
+        return F.log_softmax(next_logits[0, -1], dim=-1)
+
+    return _step
 
 
 def onnx_logits_func_cached(
@@ -130,6 +164,7 @@ def onnx_predict_gabc(
     model_dir: Path,
     *,
     providers: list[str] | None = None,
+    beam_width: int = 1,
     max_length: int = 2048,
     repetition_penalty: float = 1.1,
     grammar_constrained: bool = False,
@@ -138,24 +173,21 @@ def onnx_predict_gabc(
 ) -> str:
     """Run ONNX Runtime OMR inference on a single image and return GABC.
 
-    This is the top-level entry point for ``--device onnx``.  It loads the
-    ONNX models, preprocesses the image as a numpy array, runs KV-cached
-    greedy decoding, and assembles the final GABC output.
+    Dual-path decoding:
+        - ``beam_width <= 1``: KV-cached greedy (O(n), fast)
+        - ``beam_width > 1``: non-cached beam search (O(n^2), correct)
 
-    Beam search is not supported with ONNX — use the PyTorch backend for
-    beam search (deferred to a follow-up issue).
+    Grammar-constrained decoding is supported on both paths.
     """
-    enc_sess, init_sess, step_sess, manifest, tokenizer = load_onnx_models(
+    enc, dec, init, step, manifest, tokenizer = load_onnx_models(
         model_dir, providers=providers,
     )
 
     pixel_values_np = prepare_inference_numpy(Path(image_path))
 
-    encoder_memory = onnx_encoder_infer(enc_sess, pixel_values_np)
+    encoder_memory = onnx_encoder_infer(enc, pixel_values_np)
     memory_tensor = torch.from_numpy(encoder_memory)
-
     encoder_mask_np = np.ones((1, encoder_memory.shape[1]), dtype=np.float32)
-    logits_fn = onnx_logits_func_cached(init_sess, step_sess, encoder_mask_np)
 
     gm: GrammarMask | None = None
     if grammar_constrained:
@@ -165,14 +197,29 @@ def onnx_predict_gabc(
             penalty=grammar_penalty,
         )
 
-    token_ids = greedy_decode_generic(
-        logits_fn,
-        memory_tensor,
-        bos_token_id=tokenizer.bos_id,
-        eos_token_id=tokenizer.eos_id,
-        max_length=max_length,
-        repetition_penalty=repetition_penalty,
-        grammar_mask=gm,
-    )
+    if beam_width <= 1:
+        logits_fn = onnx_logits_func_cached(init, step, encoder_mask_np)
+        token_ids = greedy_decode_generic(
+            logits_fn,
+            memory_tensor,
+            bos_token_id=tokenizer.bos_id,
+            eos_token_id=tokenizer.eos_id,
+            max_length=max_length,
+            repetition_penalty=repetition_penalty,
+            grammar_mask=gm,
+        )
+    else:
+        logits_fn = onnx_decoder_logits_func(dec, encoder_mask_np)
+        token_ids = beam_search_decode_generic(
+            logits_fn,
+            memory_tensor,
+            bos_token_id=tokenizer.bos_id,
+            eos_token_id=tokenizer.eos_id,
+            max_length=max_length,
+            beam_width=beam_width,
+            repetition_penalty=repetition_penalty,
+            grammar_mask=gm,
+        )
+
     body = tokenizer.decode(token_ids, skip_special_tokens=True)
     return assemble_gabc(body, name=name or "OMR output")

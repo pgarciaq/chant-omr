@@ -1,4 +1,4 @@
-"""Tests for ONNX Runtime predict backend (#51)."""
+"""Tests for ONNX Runtime predict backend (#51, #60)."""
 
 from __future__ import annotations
 
@@ -94,8 +94,9 @@ class TestLoadOnnxModels:
     def test_loads_sessions(self, onnx_model_dir):
         from chant_omr.inference.onnx_decode import load_onnx_models
 
-        enc, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, dec, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
         assert enc is not None
+        assert dec is not None
         assert init is not None
         assert step is not None
         assert manifest["format"] == "onnx"
@@ -119,7 +120,7 @@ class TestOnnxEncoderInfer:
     def test_output_shape(self, onnx_model_dir):
         from chant_omr.inference.onnx_decode import load_onnx_models, onnx_encoder_infer
 
-        enc, _init, _step, _manifest, _tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, _init, _step, _manifest, _tok = load_onnx_models(onnx_model_dir)
         dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
         memory = onnx_encoder_infer(enc, dummy)
         assert memory.ndim == 3
@@ -135,7 +136,7 @@ class TestOnnxLogitsFuncCached:
             onnx_logits_func_cached,
         )
 
-        enc, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
         model_vocab = manifest["config"]["vocab_size"]
         dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
         memory_np = onnx_encoder_infer(enc, dummy)
@@ -155,7 +156,7 @@ class TestOnnxLogitsFuncCached:
             onnx_logits_func_cached,
         )
 
-        enc, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, init, step, manifest, tok = load_onnx_models(onnx_model_dir)
         model_vocab = manifest["config"]["vocab_size"]
         dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
         memory_np = onnx_encoder_infer(enc, dummy)
@@ -179,7 +180,7 @@ class TestOnnxLogitsFuncCached:
             onnx_logits_func_cached,
         )
 
-        enc, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
         dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
         memory_np = onnx_encoder_infer(enc, dummy)
         memory_t = torch.from_numpy(memory_np)
@@ -192,6 +193,53 @@ class TestOnnxLogitsFuncCached:
             bos_token_id=tok.bos_id,
             eos_token_id=tok.eos_id,
             max_length=16,
+        )
+        assert token_ids[0] == tok.bos_id
+        assert len(token_ids) >= 2
+
+
+class TestOnnxDecoderLogitsFunc:
+    """Tests for the non-cached decoder logits func (beam search path)."""
+
+    def test_noncached_produces_log_probs(self, onnx_model_dir):
+        from chant_omr.inference.onnx_decode import (
+            load_onnx_models,
+            onnx_decoder_logits_func,
+            onnx_encoder_infer,
+        )
+
+        enc, dec, _init, _step, manifest, tok = load_onnx_models(onnx_model_dir)
+        model_vocab = manifest["config"]["vocab_size"]
+        dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
+        memory_np = onnx_encoder_infer(enc, dummy)
+        memory_t = torch.from_numpy(memory_np)
+        mask_np = np.ones((1, memory_np.shape[1]), dtype=np.float32)
+
+        logits_fn = onnx_decoder_logits_func(dec, mask_np)
+        ids = torch.tensor([[tok.bos_id]], dtype=torch.long)
+        log_probs = logits_fn(ids, memory_t)
+        assert log_probs.ndim == 1
+        assert log_probs.shape[0] == model_vocab
+
+    def test_beam_search_produces_tokens(self, onnx_model_dir):
+        from chant_omr.inference.beam_search import beam_search_decode_generic
+        from chant_omr.inference.onnx_decode import (
+            load_onnx_models,
+            onnx_decoder_logits_func,
+            onnx_encoder_infer,
+        )
+
+        enc, dec, _init, _step, _manifest, tok = load_onnx_models(onnx_model_dir)
+        dummy = np.random.randn(1, 3, 128, 1050).astype(np.float32)
+        memory_np = onnx_encoder_infer(enc, dummy)
+        memory_t = torch.from_numpy(memory_np)
+        mask_np = np.ones((1, memory_np.shape[1]), dtype=np.float32)
+
+        logits_fn = onnx_decoder_logits_func(dec, mask_np)
+        token_ids = beam_search_decode_generic(
+            logits_fn, memory_t,
+            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id,
+            max_length=8, beam_width=3,
         )
         assert token_ids[0] == tok.bos_id
         assert len(token_ids) >= 2
@@ -211,7 +259,7 @@ class TestOnnxPredictGabc:
             onnx_logits_func_cached,
         )
 
-        enc, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
         pixel_np = prepare_inference_numpy(tiny_png)
         memory_np = onnx_encoder_infer(enc, pixel_np)
         memory_t = torch.from_numpy(memory_np)
@@ -266,7 +314,7 @@ class TestOnnxPredictMatchesPyTorch:
             )
 
         # --- ONNX greedy ---
-        enc, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
+        enc, _dec, init, step, _manifest, tok = load_onnx_models(onnx_model_dir)
         pixel_np = prepare_inference_numpy(tiny_png)
         memory_np = onnx_encoder_infer(enc, pixel_np)
         memory_t = torch.from_numpy(memory_np)

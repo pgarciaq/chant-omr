@@ -484,13 +484,14 @@ def export_onnx(
     trace_height: int = EXPORT_CANVAS_HEIGHT,
     trace_num_patches: int = 128,
 ) -> Path:
-    """Export encoder + decoder (init + step) to ONNX format.
+    """Export encoder + decoder (cached + non-cached) to ONNX format.
 
-    Produces three ONNX models with KV cache support:
+    Produces four ONNX models:
 
-        encoder.onnx       pixel_values → encoder_memory
-        decoder_init.onnx   first step: input_ids + memory → logits + KV cache
-        decoder_step.onnx   subsequent steps: input_ids + KV cache → logits + KV cache
+        encoder.onnx        pixel_values → encoder_memory
+        decoder.onnx         non-cached: full input_ids → logits (for beam search)
+        decoder_init.onnx    cached first step: input_ids + memory → logits + KV
+        decoder_step.onnx    cached subsequent: input_ids + KV → logits + KV
 
     Also copies ``tokenizer.json`` and writes ``manifest.json``.
 
@@ -604,6 +605,33 @@ def export_onnx(
                 "self_v": {3: "seq_len"},
                 "cross_k": {3: "num_patches"},
                 "cross_v": {3: "num_patches"},
+            },
+        )
+
+    # --- Decoder (non-cached, for beam search) ---
+    # Traced last to avoid polluting the shared model's RoPE cache
+    # before the cached decoder traces (which use seq_len=1).
+    dec_module = DecoderStepForExport(model)
+    dec_module.eval()
+
+    dummy_dec_ids = torch.ones(1, 8, dtype=torch.long)
+    dummy_dec_memory = torch.randn(1, trace_num_patches, chant_config.d_model)
+    dummy_dec_mask = torch.ones(1, trace_num_patches)
+
+    decoder_path = output_dir / "decoder.onnx"
+    with torch.inference_mode():
+        torch.onnx.export(
+            dec_module,
+            (dummy_dec_ids, dummy_dec_memory, dummy_dec_mask),
+            str(decoder_path),
+            input_names=["input_ids", "encoder_memory", "encoder_mask"],
+            output_names=["next_logits"],
+            opset_version=18,
+            dynamo=False,
+            dynamic_axes={
+                "input_ids": {1: "seq_len"},
+                "encoder_memory": {1: "num_patches"},
+                "encoder_mask": {1: "num_patches"},
             },
         )
 
@@ -778,6 +806,113 @@ def verify_onnx_decoder_step_parity(
     if max_diff > atol:
         raise AssertionError(
             f"ONNX decoder_step parity failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+def export_decoder_onnx(
+    checkpoint_path: Path,
+    output_dir: Path,
+    *,
+    config_path: Path | None = None,
+    trace_seq_len: int = 8,
+    trace_num_patches: int = 128,
+) -> Path:
+    """Export the non-cached decoder to ONNX format.
+
+    Produces ``decoder.onnx`` inside *output_dir*.  This graph processes
+    the full token sequence each step (O(n^2) but supports beam search):
+
+        input_ids (1,S) + encoder_memory (1,N,D) + encoder_mask (1,N)
+        → next_logits (1,S,V)
+
+    Args:
+        checkpoint_path: Lightning ``.ckpt`` checkpoint.
+        output_dir: Destination for ``.onnx`` file.
+        config_path: YAML config (defaults to ``configs/default.yaml``).
+        trace_seq_len: Token count used for the tracing dummy input.
+        trace_num_patches: Encoder patch count for the tracing dummy input.
+
+    Returns:
+        Path to the exported ``.onnx`` file.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    cfg = load_config(Path(config_path or "configs/default.yaml"))
+    model_cfg = cfg.get("model", {})
+    chant_config = ChantOMRConfig.from_mapping(model_cfg)
+
+    dec_module = DecoderStepForExport(model)
+    dec_module.eval()
+
+    dummy_ids = torch.ones(1, trace_seq_len, dtype=torch.long)
+    dummy_memory = torch.randn(1, trace_num_patches, chant_config.d_model)
+    dummy_mask = torch.ones(1, trace_num_patches)
+
+    decoder_path = output_dir / "decoder.onnx"
+    with torch.inference_mode():
+        torch.onnx.export(
+            dec_module,
+            (dummy_ids, dummy_memory, dummy_mask),
+            str(decoder_path),
+            input_names=["input_ids", "encoder_memory", "encoder_mask"],
+            output_names=["next_logits"],
+            opset_version=18,
+            dynamo=False,
+            dynamic_axes={
+                "input_ids": {1: "seq_len"},
+                "encoder_memory": {1: "num_patches"},
+                "encoder_mask": {1: "num_patches"},
+            },
+        )
+
+    return decoder_path
+
+
+def verify_onnx_decoder_parity(
+    checkpoint_path: Path,
+    onnx_path: Path,
+    *,
+    config_path: Path | None = None,
+    seq_len: int = 8,
+    num_patches: int = 128,
+    atol: float = 5e-3,
+) -> float:
+    """Compare PyTorch non-cached decoder with ONNX Runtime."""
+    import numpy as np
+    import onnxruntime as ort
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    dec_module = DecoderStepForExport(model)
+    dec_module.eval()
+
+    dummy_ids = torch.ones(1, seq_len, dtype=torch.long)
+    dummy_memory = torch.randn(1, num_patches, model.config.d_model)
+    dummy_mask = torch.ones(1, num_patches)
+
+    with torch.inference_mode():
+        pt_out = dec_module(dummy_ids, dummy_memory, dummy_mask)
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    ort_result = session.run(None, {
+        "input_ids": dummy_ids.numpy(),
+        "encoder_memory": dummy_memory.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
+    })
+    onnx_out = torch.from_numpy(np.array(ort_result[0]))
+
+    max_diff = float((pt_out - onnx_out).abs().max())
+    if max_diff > atol:
+        raise AssertionError(
+            f"ONNX decoder parity failed: max abs diff {max_diff:.6f} > atol {atol}"
         )
     return max_diff
 

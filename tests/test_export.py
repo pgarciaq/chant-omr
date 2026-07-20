@@ -1,4 +1,4 @@
-"""Tests for ONNX/OpenVINO export, safetensors, and OV decode (#13b, #36, #41, #50)."""
+"""Tests for ONNX/OpenVINO export, safetensors, and OV decode (#13b, #36, #41, #50, #60)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from chant_omr.inference.export import (
     DecoderStepForExport,
     EncoderForExport,
     export_decoder_init_openvino,
+    export_decoder_onnx,
     export_decoder_openvino,
     export_decoder_step_openvino,
     export_onnx,
@@ -29,6 +30,7 @@ from chant_omr.inference.export import (
     verify_decoder_openvino_parity,
     verify_decoder_step_openvino_parity,
     verify_onnx_decoder_init_parity,
+    verify_onnx_decoder_parity,
     verify_onnx_decoder_step_parity,
     verify_onnx_encoder_parity,
     verify_openvino_parity,
@@ -206,6 +208,7 @@ class TestExportOnnx:
             trace_height=128,
         )
         assert (out_dir / "encoder.onnx").exists()
+        assert (out_dir / "decoder.onnx").exists()
         assert (out_dir / "decoder_init.onnx").exists()
         assert (out_dir / "decoder_step.onnx").exists()
         assert (out_dir / "manifest.json").exists()
@@ -258,6 +261,43 @@ class TestExportOnnx:
         diff = verify_onnx_decoder_step_parity(
             ckpt_path, out_dir / "decoder_step.onnx",
             config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+    def test_decoder_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_dec_parity"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        diff = verify_onnx_decoder_parity(
+            ckpt_path, out_dir / "decoder.onnx",
+            config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+
+class TestExportDecoderOnnx:
+    """Tests for standalone non-cached ONNX decoder export (#60)."""
+
+    def test_produces_onnx_file(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "dec_onnx_export"
+        onnx_path = export_decoder_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+        )
+        assert onnx_path.exists()
+        assert onnx_path.name == "decoder.onnx"
+
+    def test_decoder_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "dec_onnx_parity"
+        onnx_path = export_decoder_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+        )
+        diff = verify_onnx_decoder_parity(
+            ckpt_path, onnx_path, config_path=cfg_path,
         )
         assert diff < 5e-3
 
