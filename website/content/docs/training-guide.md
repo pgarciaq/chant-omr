@@ -107,11 +107,17 @@ Training parameters are in `configs/default.yaml`:
    ```bash
    chant-omr evaluate --checkpoint checkpoints/best.ckpt --gregorio-check
    ```
-4. Export to ONNX for deployment:
+4. Export for deployment:
    ```bash
+   # ONNX (primary — runs on any hardware via ONNX Runtime)
    pip install onnx onnxruntime   # if not already installed
    chant-omr export checkpoints/best.ckpt --format onnx --output-dir models/ --verify
+
+   # OpenVINO (optional — optimized for Intel Arc GPUs and NPUs)
+   pip install -e ".[export]"    # installs openvino + nncf
+   chant-omr export checkpoints/best.ckpt --format openvino --output-dir models/ --verify
    ```
-   This produces `encoder.onnx`, `decoder_init.onnx`, `decoder_step.onnx`,
-   `tokenizer.json`, and `manifest.json`. The `--verify` flag runs numeric
-   parity checks against the PyTorch model (expect max abs diff < 1e-4).
+   ONNX produces `encoder.onnx`, `decoder.onnx`, `decoder_init.onnx`,
+   `decoder_step.onnx`, `tokenizer.json`, and `manifest.json`. OpenVINO
+   produces the equivalent `.xml/.bin` IR files. The `--verify` flag runs
+   numeric parity checks against the PyTorch model.

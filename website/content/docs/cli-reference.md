@@ -61,38 +61,59 @@ By default runs in dry-run mode (reports but does not delete).
 Run OMR on a single image.
 
 ```bash
-chant-omr predict IMAGE_PATH [--checkpoint PATH] [--beam-width 3] \
-    [--grammar-constrained] [--grammar-penalty FLOAT]
+chant-omr predict IMAGE_PATH --checkpoint PATH [--device auto] \
+    [--model-dir models/] [--beam-width 3] [--max-length 8192] \
+    [--grammar-constrained] [--grammar-penalty FLOAT] \
+    [--output FILE]
 ```
 
 Loads the trained model and decodes the score image into GABC notation,
-printed to stdout.
+printed to stdout (or written to a file with `--output`).
+
+The `--device` flag selects the inference backend. PyTorch backends
+(`auto`, `cuda`, `xpu`, `cpu`) use the `.ckpt` checkpoint directly.
+The `onnx` and `openvino` backends use exported models from `--model-dir`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--checkpoint` | auto-detect | Path to a `.ckpt` file |
-| `--beam-width` | 3 | Beam search width (1 = greedy) |
+| `--checkpoint` | required | Path to a `.ckpt` file (PyTorch backends) |
+| `--device` | `auto` | Inference backend: `auto`/`cuda`/`xpu`/`cpu` (PyTorch), `onnx`, or `openvino` |
+| `--model-dir` | `models/` | Exported model directory (used with `--device onnx` or `openvino`) |
+| `--beam-width` | from config | Beam search width (1 = greedy) |
+| `--max-length` | from config | Maximum decoder sequence length |
+| `--repetition-penalty` | from config | Repetition penalty for autoregressive decoding |
 | `--grammar-constrained` | off | Enable balanced-parenthesis grammar mask during decoding |
 | `--grammar-penalty` | `-inf` | Logit penalty for grammar-forbidden tokens. `-inf` = hard mask; a finite value like `-10.0` = soft penalty that can be overridden by strong model confidence |
+| `--output` / `-o` | stdout | Write GABC to a file instead of stdout |
+| `--name` | `OMR output` | GABC `name:` header value |
+| `--dump-metrics` | off | Print teacher-forcing vs greedy diagnostics (uses sidecar `.gabc` when present) |
 
 ## `chant-omr evaluate`
 
 Evaluate model on benchmark (image, GABC) pairs.
 
 ```bash
-chant-omr evaluate [--checkpoint PATH] [--benchmark-dir benchmarks/] \
+chant-omr evaluate CHECKPOINT [--benchmark-dir benchmarks/] \
+    [--device auto] [--beam-width 3] [--max-length 8192] \
+    [--test-split-only] [--limit N] \
     [--grammar-constrained] [--grammar-penalty FLOAT] [--gregorio-check]
 ```
 
-Reports aggregate metrics: GABC Edit Distance, neume accuracy, and
-structural validity.
+Reports aggregate metrics: GABC Edit Distance, neume accuracy, structural
+validity, and optionally Gregorio compilation success rate.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--checkpoint` | auto-detect | Path to a `.ckpt` file |
-| `--benchmark-dir` | `benchmarks/` | Directory with paired `.png` + `.gabc` files |
+| `CHECKPOINT` | required | Path to a `.ckpt` file (positional argument) |
+| `--benchmark-dir` | auto-detect | Directory with paired `.png` + `.gabc` files (tries `benchmarks/`, then `data/rendered/`) |
+| `--device` | `auto` | Inference device: `auto`/`cuda`/`xpu`/`cpu` |
+| `--beam-width` | `3` | Beam search width |
+| `--max-length` | `8192` | Maximum decoder sequence length |
+| `--repetition-penalty` | `1.1` | Repetition penalty |
+| `--test-split-only` | off | Only evaluate test-split samples (`catalog_id % 20 == 0`) |
+| `--limit` | all | Evaluate only first N pairs |
 | `--grammar-constrained` | off | Enable grammar-constrained decoding during evaluation |
-| `--grammar-penalty` | `-inf` | Logit penalty for grammar-forbidden tokens |
+| `--grammar-penalty` | from config | Logit penalty for grammar-forbidden tokens |
 | `--gregorio-check` | off | Compile each prediction through Gregorio to check structural validity (requires `gregorio` binary) |
 
 ## `chant-omr export`
@@ -112,14 +133,14 @@ chant-omr export CHECKPOINT [--format onnx|openvino|safetensors] \
 
 | Format | Artifacts | Description |
 |--------|-----------|-------------|
-| `onnx` | `encoder.onnx`, `decoder_init.onnx`, `decoder_step.onnx`, `tokenizer.json`, `manifest.json` | **Primary.** Portable inference on any hardware via ONNX Runtime (CUDA, DirectML, CoreML, CPU). Uses KV cache with a two-model decoder strategy (init + step). |
-| `openvino` | `encoder.xml/.bin`, `decoder.xml/.bin`, `manifest.json` | Intel-optimized path for Arc GPUs and NPUs |
+| `onnx` | `encoder.onnx`, `decoder.onnx`, `decoder_init.onnx`, `decoder_step.onnx`, `tokenizer.json`, `manifest.json` | **Primary.** Portable inference on any hardware via ONNX Runtime (CUDA, DirectML, CoreML, CPU). Dual-path decoding: cached (init + step) for greedy, non-cached for beam search. |
+| `openvino` | `encoder.xml/.bin`, `decoder.xml/.bin`, `decoder_init.xml/.bin`, `decoder_step.xml/.bin`, `manifest.json` | Intel-optimized path for Arc GPUs and NPUs. Same dual-path layout as ONNX. |
 | `safetensors` | `model.safetensors`, `manifest.json` | Full weights for HuggingFace distribution |
 
-The ONNX decoder uses **4 stacked KV cache tensors** `(n_layers, B, H, S, head_dim)`
-for efficient autoregressive generation. `decoder_init.onnx` runs the first
-step (computing cross-attention K/V from encoder memory), and `decoder_step.onnx`
-runs subsequent steps (reusing cached cross-attention K/V).
+The decoder uses **dual-path decoding**: greedy mode uses a KV-cached path
+(`decoder_init` for the first step, `decoder_step` for subsequent steps)
+with 4 stacked cache tensors `(n_layers, B, H, S, head_dim)`. Beam search
+uses the non-cached `decoder` model that recomputes attention each step.
 
 ## `chant-omr audit-tokens`
 

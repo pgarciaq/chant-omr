@@ -52,7 +52,7 @@ An 8-layer Transformer decoder with:
 | `n_heads` | 8 |
 | `d_ff` | 1024 |
 | `dropout` | 0.1 |
-| `max_seq_len` | 2048 |
+| `max_seq_len` | 8192 |
 | Positional encoding | RoPE (Rotary Position Embedding) |
 | Normalization | Pre-LayerNorm |
 
@@ -101,10 +101,15 @@ See [ADR-0003](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-b
   comparison across equivalent GABC encodings
 - **Gregorio compilation check:** Gold-standard structural validation by
   compiling predictions through the Gregorio binary
+- **Dual-path decoding:** Greedy decoding uses a fast KV-cached path
+  (`decoder_init` + `decoder_step`); beam search uses a non-cached
+  `decoder` model that recomputes attention each step for correctness
 - **ONNX export** (primary) for deployment on any hardware via ONNX Runtime.
-  The decoder is exported as two models: `decoder_init.onnx` (first step,
-  computes cross-attention K/V from encoder memory) and `decoder_step.onnx`
-  (subsequent steps, reuses cached K/V). KV cache uses 4 stacked tensors
+  Exports four decoder variants: `decoder.onnx` (non-cached, beam search),
+  `decoder_init.onnx` (first cached step), and `decoder_step.onnx`
+  (subsequent cached steps). KV cache uses 4 stacked tensors
   `(n_layers, B, H, S, head_dim)` for clean ONNX I/O
-- **OpenVINO export** (optional) for accelerated inference on Intel hardware
+- **OpenVINO export** for accelerated inference on Intel Arc GPUs and NPUs.
+  Same four-model layout: `encoder.xml`, `decoder.xml` (non-cached),
+  `decoder_init.xml` (cached init), `decoder_step.xml` (cached step)
   ([ADR-0012](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md))
