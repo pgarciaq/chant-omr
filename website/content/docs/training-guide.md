@@ -107,4 +107,11 @@ Training parameters are in `configs/default.yaml`:
    ```bash
    chant-omr evaluate --checkpoint checkpoints/best.ckpt --gregorio-check
    ```
-4. Export for deployment: `chant-omr export --checkpoint checkpoints/best.ckpt`
+4. Export to ONNX for deployment:
+   ```bash
+   pip install onnx onnxruntime   # if not already installed
+   chant-omr export checkpoints/best.ckpt --format onnx --output-dir models/ --verify
+   ```
+   This produces `encoder.onnx`, `decoder_init.onnx`, `decoder_step.onnx`,
+   `tokenizer.json`, and `manifest.json`. The `--verify` flag runs numeric
+   parity checks against the PyTorch model (expect max abs diff < 1e-4).

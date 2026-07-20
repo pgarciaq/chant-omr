@@ -100,14 +100,26 @@ structural validity.
 Export the model for deployment.
 
 ```bash
-chant-omr export [--checkpoint PATH] [--format onnx|openvino|safetensors]
+chant-omr export CHECKPOINT [--format onnx|openvino|safetensors] \
+    [--output-dir models/] [--verify]
 ```
 
-| Format | Description |
-|--------|-------------|
-| `onnx` | **Primary.** ONNX for inference on any hardware via ONNX Runtime (CUDA, DirectML, CoreML, CPU) |
-| `openvino` | Optional. OpenVINO IR for accelerated inference on Intel Arc GPUs and NPUs |
-| `safetensors` | For HuggingFace distribution |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format` | `onnx` | Export format (see table below) |
+| `--output-dir` | `models/` | Output directory for exported artifacts |
+| `--verify` | off | Run numeric parity check after export (PyTorch vs exported model) |
+
+| Format | Artifacts | Description |
+|--------|-----------|-------------|
+| `onnx` | `encoder.onnx`, `decoder_init.onnx`, `decoder_step.onnx`, `tokenizer.json`, `manifest.json` | **Primary.** Portable inference on any hardware via ONNX Runtime (CUDA, DirectML, CoreML, CPU). Uses KV cache with a two-model decoder strategy (init + step). |
+| `openvino` | `encoder.xml/.bin`, `decoder.xml/.bin`, `manifest.json` | Intel-optimized path for Arc GPUs and NPUs |
+| `safetensors` | `model.safetensors`, `manifest.json` | Full weights for HuggingFace distribution |
+
+The ONNX decoder uses **4 stacked KV cache tensors** `(n_layers, B, H, S, head_dim)`
+for efficient autoregressive generation. `decoder_init.onnx` runs the first
+step (computing cross-attention K/V from encoder memory), and `decoder_step.onnx`
+runs subsequent steps (reusing cached cross-attention K/V).
 
 ## `chant-omr audit-tokens`
 

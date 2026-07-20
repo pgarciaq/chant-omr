@@ -101,6 +101,10 @@ See [ADR-0003](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-b
   comparison across equivalent GABC encodings
 - **Gregorio compilation check:** Gold-standard structural validation by
   compiling predictions through the Gregorio binary
-- **ONNX export** (primary) for deployment on any hardware via ONNX Runtime
+- **ONNX export** (primary) for deployment on any hardware via ONNX Runtime.
+  The decoder is exported as two models: `decoder_init.onnx` (first step,
+  computes cross-attention K/V from encoder memory) and `decoder_step.onnx`
+  (subsequent steps, reuses cached K/V). KV cache uses 4 stacked tensors
+  `(n_layers, B, H, S, head_dim)` for clean ONNX I/O
 - **OpenVINO export** (optional) for accelerated inference on Intel hardware
   ([ADR-0012](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md))
