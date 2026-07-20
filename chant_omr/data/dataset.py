@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ from chant_omr.data.gabc_parser import (
 )
 from chant_omr.model.encoder import DEFAULT_OUTPUT_STRIDE, patch_grid_size
 from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PATCH_STRIDE = DEFAULT_OUTPUT_STRIDE
 
@@ -212,7 +215,15 @@ def collate_chant_omr_batch(
     input_ids = torch.full((len(batch), max_tokens), pad_token_id, dtype=torch.long)
     attention_mask = torch.zeros((len(batch), max_tokens), dtype=torch.long)
     for row, item in enumerate(batch):
+        orig_len = len(item["input_ids"])
         ids = item["input_ids"][:max_seq_len]
+        if orig_len > max_seq_len:
+            logger.warning(
+                "Truncated %s from %d to %d tokens",
+                item.get("stem", "?"),
+                orig_len,
+                max_seq_len,
+            )
         input_ids[row, : len(ids)] = torch.tensor(ids, dtype=torch.long)
         attention_mask[row, : len(ids)] = 1
 
@@ -347,7 +358,7 @@ def build_dataloaders(
     *,
     batch_size: int = 8,
     num_workers: int = 0,
-    max_seq_len: int = 2048,
+    max_seq_len: int = 8192,
     pad_token_id: int | None = None,
 ) -> tuple[DataLoader, DataLoader]:
     """Build train/val DataLoaders with batch padding collate."""
@@ -415,6 +426,6 @@ def build_dataloaders_from_config(
         val_ds,
         batch_size=int(training_cfg.get("batch_size", 8)),
         num_workers=int(data_cfg.get("num_workers", 0)),
-        max_seq_len=int(model_cfg.get("max_seq_len", 2048)),
+        max_seq_len=int(model_cfg.get("max_seq_len", 8192)),
         pad_token_id=tok.pad_id,
     )

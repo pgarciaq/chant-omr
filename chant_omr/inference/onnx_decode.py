@@ -165,7 +165,7 @@ def onnx_predict_gabc(
     *,
     providers: list[str] | None = None,
     beam_width: int = 1,
-    max_length: int = 2048,
+    max_length: int | None = None,
     repetition_penalty: float = 1.1,
     grammar_constrained: bool = False,
     grammar_penalty: float = float("-inf"),
@@ -181,6 +181,11 @@ def onnx_predict_gabc(
     """
     enc, dec, init, step, manifest, tokenizer = load_onnx_models(
         model_dir, providers=providers,
+    )
+    resolved_max_length = (
+        max_length
+        if max_length is not None
+        else manifest.get("config", {}).get("max_seq_len", 8192)
     )
 
     pixel_values_np = prepare_inference_numpy(Path(image_path))
@@ -204,7 +209,7 @@ def onnx_predict_gabc(
             memory_tensor,
             bos_token_id=tokenizer.bos_id,
             eos_token_id=tokenizer.eos_id,
-            max_length=max_length,
+            max_length=resolved_max_length,
             repetition_penalty=repetition_penalty,
             grammar_mask=gm,
         )
@@ -215,7 +220,7 @@ def onnx_predict_gabc(
             memory_tensor,
             bos_token_id=tokenizer.bos_id,
             eos_token_id=tokenizer.eos_id,
-            max_length=max_length,
+            max_length=resolved_max_length,
             beam_width=beam_width,
             repetition_penalty=repetition_penalty,
             grammar_mask=gm,

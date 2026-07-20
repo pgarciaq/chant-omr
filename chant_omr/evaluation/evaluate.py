@@ -158,7 +158,7 @@ def evaluate_checkpoint(
     config_path: Path | None = None,
     device: str = "cpu",
     beam_width: int = 3,
-    max_length: int = 2048,
+    max_length: int = 8192,
     repetition_penalty: float = 1.1,
     grammar_constrained: bool = False,
     grammar_penalty: float = float("-inf"),

@@ -172,6 +172,47 @@ class TestPredictGabc:
         assert resolve_inference_device("auto").type == "cpu"
 
 
+class TestMaxLengthFromConfig:
+    def test_predict_derives_max_length_from_model(
+        self,
+        checkpoint_path,
+        config_paths,
+        tiny_png,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """When max_length is None, predict_gabc reads model.config.max_seq_len."""
+        cfg_path, _ = config_paths
+        monkeypatch.setattr(
+            "chant_omr.inference.predict.format_training_device_message",
+            lambda **kwargs: "",
+        )
+        captured_config = {}
+
+        original_decode = decode_token_ids
+
+        def _capture_decode(model, pv, tokenizer, config):
+            captured_config["max_length"] = config.max_length
+            return original_decode(model, pv, tokenizer, config)
+
+        monkeypatch.setattr(
+            "chant_omr.inference.predict.decode_token_ids",
+            _capture_decode,
+        )
+        try:
+            predict_gabc(
+                tiny_png,
+                checkpoint_path,
+                config_path=cfg_path,
+                device="cpu",
+                beam_width=1,
+                max_length=None,
+                repetition_penalty=1.0,
+            )
+        except ValueError:
+            pass
+        assert captured_config.get("max_length") == 128
+
+
 class TestPredictMetrics:
     def test_resolve_reference_gabc_sidecar(self, tiny_png: Path):
         sidecar = tiny_png.with_suffix(".gabc")

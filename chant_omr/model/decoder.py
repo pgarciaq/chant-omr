@@ -51,7 +51,7 @@ class DecoderConfig:
     n_heads: int = 8
     d_ff: int = 1024
     dropout: float = 0.1
-    max_seq_len: int = 2048
+    max_seq_len: int = 8192
     vocab_size: int = 2048
     rope_theta: float = 10_000.0
 
@@ -74,7 +74,7 @@ class DecoderConfig:
             n_heads=int(mapping.get("n_heads", 8)),
             d_ff=int(mapping.get("d_ff", 1024)),
             dropout=float(mapping.get("dropout", 0.1)),
-            max_seq_len=int(mapping.get("max_seq_len", 2048)),
+            max_seq_len=int(mapping.get("max_seq_len", 8192)),
             vocab_size=int(mapping.get("vocab_size", 2048)),
             rope_theta=float(mapping.get("rope_theta", 10_000.0)),
         )

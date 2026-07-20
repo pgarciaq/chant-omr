@@ -18,7 +18,7 @@ model:
   n_heads: 8
   d_ff: 1024
   dropout: 0.0
-  max_seq_len: 2048
+  max_seq_len: 8192
   vocab_size: 2048
 
 training:
@@ -37,4 +37,4 @@ training:
 inference:
   beam_width: 1
   repetition_penalty: 1.0
-  max_length: 2048
+  max_length: 8192

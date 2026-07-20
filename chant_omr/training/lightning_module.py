@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ from chant_omr.model.chant_omr_model import ChantOMR, ChantOMRConfig, build_mode
 from chant_omr.model.tokenizer import TOKENIZER_FILENAME, GABCTokenizer
 from chant_omr.training.scheduled_sampling import build_scheduled_decoder_input
 from chant_omr.training.xpu_strategy import SingleXPUStrategy, xpu_is_available
+
+logger = logging.getLogger(__name__)
 
 
 class ChantOMRLightningModule(LightningModule):
@@ -110,8 +113,20 @@ class ChantOMRLightningModule(LightningModule):
         )
         return loss
 
-    def training_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        loss = self._compute_loss(batch)
+    def training_step(
+        self, batch: dict[str, torch.Tensor], batch_idx: int,
+    ) -> torch.Tensor | None:
+        try:
+            loss = self._compute_loss(batch)
+        except torch.cuda.OutOfMemoryError:
+            seq_len = batch["input_ids"].shape[1]
+            logger.warning(
+                "CUDA OOM on batch %d (seq_len=%d), skipping",
+                batch_idx,
+                seq_len,
+            )
+            torch.cuda.empty_cache()
+            return None
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
@@ -285,7 +300,7 @@ def build_training_dataloaders(
         val_ds,
         batch_size=int(training_cfg.get("batch_size", 8)),
         num_workers=int(data_cfg.get("num_workers", 0)),
-        max_seq_len=int(model_cfg.get("max_seq_len", 2048)),
+        max_seq_len=int(model_cfg.get("max_seq_len", 8192)),
         pad_token_id=tokenizer.pad_id,
     )
 

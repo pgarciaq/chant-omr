@@ -34,7 +34,7 @@ class DecodeConfig:
     """Token generation settings."""
 
     beam_width: int = 1
-    max_length: int = 2048
+    max_length: int = 8192
     repetition_penalty: float = 1.0
     grammar_constrained: bool = False
     grammar_penalty: float = float("-inf")

@@ -267,6 +267,44 @@ class TestEncoderAttentionMaskHelper:
         assert mask[1].sum() == grid_h * grid_w
 
 
+class TestCollateTruncationLogging:
+    def test_logs_warning_when_truncating(self, rendered_dir: Path, tokenizer, caplog):
+        """collate_fn warns when a sample exceeds max_seq_len."""
+        import logging
+
+        samples = discover_rendered_pairs(rendered_dir, min_body_len=10)
+        dataset = ChantOMRDataset(samples[:1], tokenizer, augment=False)
+        item = dataset[0]
+        original_len = len(item["input_ids"])
+        tiny_limit = 4
+
+        assert original_len > tiny_limit, "fixture must be longer than tiny_limit"
+        with caplog.at_level(logging.WARNING, logger="chant_omr.data.dataset"):
+            collate_chant_omr_batch(
+                [item],
+                pad_token_id=tokenizer.pad_id,
+                max_seq_len=tiny_limit,
+            )
+        assert any("Truncated" in r.message for r in caplog.records)
+        assert any(str(original_len) in r.message for r in caplog.records)
+
+    def test_no_warning_when_within_limit(self, rendered_dir: Path, tokenizer, caplog):
+        """No warning when all sequences fit within max_seq_len."""
+        import logging
+
+        samples = discover_rendered_pairs(rendered_dir, min_body_len=10)
+        dataset = ChantOMRDataset(samples[:1], tokenizer, augment=False)
+        item = dataset[0]
+
+        with caplog.at_level(logging.WARNING, logger="chant_omr.data.dataset"):
+            collate_chant_omr_batch(
+                [item],
+                pad_token_id=tokenizer.pad_id,
+                max_seq_len=8192,
+            )
+        assert not any("Truncated" in r.message for r in caplog.records)
+
+
 class TestDataLoaderIntegration:
     def test_dataloader_batch(self, rendered_dir: Path, tokenizer):
         train_ds, val_ds = build_datasets(

@@ -43,6 +43,22 @@ class TestTrainingStep:
         assert loss.ndim == 0
         assert torch.isfinite(loss)
 
+    def test_training_step_oom_returns_none(
+        self, module: ChantOMRLightningModule, monkeypatch: pytest.MonkeyPatch,
+    ):
+        """OOM during training_step is caught and returns None (batch skipped)."""
+        def _oom_loss(batch, **kwargs):
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+        monkeypatch.setattr(module, "_compute_loss", _oom_loss)
+        batch = {
+            "pixel_values": torch.randn(1, 3, 128, 1050),
+            "input_ids": torch.tensor([[1, 10, 2]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+        }
+        result = module.training_step(batch, 0)
+        assert result is None
+
     def test_validation_step(self, module: ChantOMRLightningModule):
         batch = {
             "pixel_values": torch.randn(1, 3, 400, 1050),

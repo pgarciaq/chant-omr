@@ -57,7 +57,7 @@ def predict_gabc(
     device: str = "auto",
     xpu_index: int = 0,
     beam_width: int = 3,
-    max_length: int = 2048,
+    max_length: int | None = None,
     repetition_penalty: float = 1.1,
     grammar_constrained: bool = False,
     grammar_penalty: float = float("-inf"),
@@ -81,10 +81,11 @@ def predict_gabc(
         config_path=config_path,
         device=torch_device,
     )
+    resolved_max_length = max_length if max_length is not None else model.config.max_seq_len
     pixel_values = prepare_inference_tensor(image_path, device=torch_device)
     decode_config = DecodeConfig(
         beam_width=beam_width,
-        max_length=max_length,
+        max_length=resolved_max_length,
         repetition_penalty=repetition_penalty,
         grammar_constrained=grammar_constrained,
         grammar_penalty=grammar_penalty,

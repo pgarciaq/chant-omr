@@ -132,7 +132,7 @@ def predict(
     gp = grammar_penalty if grammar_penalty is not None else float(gp_raw)
 
     bw = int(beam_width if beam_width is not None else infer_cfg.get("beam_width", 3))
-    ml = int(max_length if max_length is not None else infer_cfg.get("max_length", 2048))
+    ml = int(max_length if max_length is not None else infer_cfg.get("max_length", 8192))
     rp = float(
         repetition_penalty
         if repetition_penalty is not None
@@ -502,7 +502,7 @@ def audit_tokens(config, rendered_dir, top_n):
     tok_dir = Path(data_cfg.get("tokenizer_dir", "data/tokenizer/"))
     tokenizer = GABCTokenizer.load(tok_dir / TOKENIZER_FILENAME)
     rdir = Path(rendered_dir or data_cfg.get("rendered_dir", "data/rendered/"))
-    max_seq_len = int(model_cfg.get("max_seq_len", 2048))
+    max_seq_len = int(model_cfg.get("max_seq_len", 8192))
 
     report = audit_token_lengths(
         rdir,
@@ -568,7 +568,7 @@ main.add_command(manifest)
     show_default=True,
 )
 @click.option("--beam-width", type=int, default=3, show_default=True)
-@click.option("--max-length", type=int, default=2048, show_default=True)
+@click.option("--max-length", type=int, default=8192, show_default=True)
 @click.option(
     "--repetition-penalty", type=float, default=1.1, show_default=True,
 )

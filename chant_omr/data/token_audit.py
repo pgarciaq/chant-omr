@@ -32,7 +32,7 @@ def audit_token_lengths(
     rendered_dir: Path,
     tokenizer: GABCTokenizer,
     *,
-    max_seq_len: int = 2048,
+    max_seq_len: int = 8192,
     top_n: int = 10,
     min_body_len: int = 20,
 ) -> TokenLengthReport:
