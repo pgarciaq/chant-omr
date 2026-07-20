@@ -648,27 +648,39 @@ chant-omr evaluate checkpoints/best.ckpt \
 
 Compare against the first training run's results:
 
-| Metric | First training (10 samples) | Augmented baseline (1000 samples) |
-|--------|---------------------------|----------------------------------|
-| Mean GED | 0.0841 | **0.0311** |
-| Equiv-normalized GED | N/A | **0.0311** |
-| Neume accuracy | 92.95% | **96.18%** |
-| Neume accuracy (equiv) | N/A | **97.04%** |
-| Structural validity (regex) | 90.0% | **97.7%** |
-| Gregorio compilation | N/A | **99.0%** |
-| Best epoch | ~43 | **24** |
+| Metric | First training (10 samples) | Augmented baseline (1000) | Augmented + grammar (1000) |
+|--------|---------------------------|--------------------------|---------------------------|
+| Mean GED | 0.0841 | 0.0311 | **0.0310** |
+| Equiv-normalized GED | N/A | 0.0311 | **0.0309** |
+| Neume accuracy | 92.95% | 96.18% | **96.20%** |
+| Neume accuracy (equiv) | N/A | 97.04% | **97.06%** |
+| Structural validity (regex) | 90.0% | 97.7% | **97.8%** |
+| Gregorio compilation | N/A | 99.0% | **99.0%** |
+| Best epoch | ~43 | 24 | 24 |
 
 **Results (second training, 2026-07-20):**
 
 All targets met or exceeded:
-- GED 3.1% (target < 30%) — 63% relative improvement over first run
-- Neume accuracy 97.0% equiv (target > 80%) — +4.1pp over first run
-- Structural validity 97.7% (target > 95%) — exceeded without grammar constraints
-- Gregorio compilation 99.0% — only 10 failures in 1,000 samples
-- Grammar constraints not needed for structural validity target (available for edge cases)
+- GED 3.1% (target < 30%) -- 63% relative improvement over first run
+- Neume accuracy 97.1% equiv (target > 80%) -- +4.1pp over first run
+- Structural validity 97.8% (target > 95%) -- exceeded even without grammar
+- Gregorio compilation 99.0% -- only 10 failures in 1,000 samples
 
-Gregorio compilation failures (10/1000): mostly syntax errors on long or
-complex chants, one segfault in gregorio itself (exit code -11).
+**Grammar-constrained vs baseline (same checkpoint, same 1000 samples):**
+
+Grammar constraints had minimal impact on aggregate metrics (+0.02pp neume
+accuracy, +0.1pp structural validity). The model already learned to produce
+structurally valid GABC from training alone. Grammar remains useful as a
+safety net for edge cases and for future models trained on less data.
+
+Gregorio compilation failures (10/1000, same in both runs): mostly syntax
+errors on long or complex chants, unclosed style tags, and one segfault in
+gregorio itself (exit code -11 on `20020.png`).
+
+Worst-performing samples (GED > 0.5): `15700_elem2/3/4/5` (multi-element
+score, likely out-of-distribution), `17180`, `10060`, `19100`, `20560`,
+`17040`, `4220`, `17000`, `4600_elem1`. These ~15 outliers are candidates
+for error analysis or additional training data.
 
 ### 6.4 Copy the best checkpoint back
 
