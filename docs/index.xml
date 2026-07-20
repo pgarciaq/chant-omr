@@ -71,8 +71,8 @@ foxing spots, uneven lighting, perspective distortion from photographing a
 bound book. Domain augmentation bridges this gap by transforming clean renders
 on-the-fly during training so the model learns to handle real-world conditions.&lt;/p>
 &lt;h2 id="how-it-works">How It Works&lt;/h2>
-&lt;p>Each training image passes through 13 independent transforms, each with its
-own probability. On average, ~5-6 transforms fire per image. The transforms
+&lt;p>Each training image passes through 15 independent transforms, each with its
+own probability. On average, ~6-7 transforms fire per image. The transforms
 are applied using OpenCV and NumPy, with a seeded random generator for
 reproducibility.&lt;/p></description></item><item><title>Training Guide</title><link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid><description>&lt;p>This is a condensed version of the full
 &lt;a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md&lt;/a>.&lt;/p>

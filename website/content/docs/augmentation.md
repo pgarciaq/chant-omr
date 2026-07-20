@@ -1,7 +1,7 @@
 ---
 title: "Data Augmentation"
 weight: 35
-description: "13 domain transforms that bridge the gap between clean renders and real manuscripts"
+description: "15 domain transforms that bridge the gap between clean renders and real manuscripts"
 ---
 
 ChantOMR is trained on clean, computer-rendered score images (Gregorio +
@@ -12,8 +12,8 @@ on-the-fly during training so the model learns to handle real-world conditions.
 
 ## How It Works
 
-Each training image passes through 13 independent transforms, each with its
-own probability. On average, ~5-6 transforms fire per image. The transforms
+Each training image passes through 15 independent transforms, each with its
+own probability. On average, ~6-7 transforms fire per image. The transforms
 are applied using OpenCV and NumPy, with a seeded random generator for
 reproducibility.
 
@@ -39,6 +39,8 @@ diversity without storing augmented copies on disk.
 |-----------|-------------|-------------|
 | **Ink fade** | 20% | Reduces contrast and lightens dark pixels, simulating aged ink |
 | **Staff hue shift** | 30% | Shifts the hue of red staff lines, simulating different ink batches or aging |
+| **Ink bleeding** | 15% | Oriented morphological dilation simulating ink spreading along parchment fibers |
+| **Ink thickness variation** | 15% | Gradient-weighted erosion/dilation simulating varying quill pressure across the page |
 
 ### Degradation
 
@@ -85,7 +87,7 @@ the validation split always uses clean images.
 
 ## Performance Notes
 
-The 13 transforms are CPU-bound (OpenCV/NumPy). With `num_workers: 0` in
+The 15 transforms are CPU-bound (OpenCV/NumPy). With `num_workers: 0` in
 the DataLoader, augmentation runs in the main process and can cause ~4x
 slower epoch times. Setting `num_workers: 4` (or higher on bare metal)
 allows parallel augmentation across CPU cores.

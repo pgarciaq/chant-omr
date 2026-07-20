@@ -14,7 +14,9 @@ from chant_omr.data.augmentation import (
     _apply_aging,
     _apply_barrel_distortion,
     _apply_foxing,
+    _apply_ink_bleeding,
     _apply_ink_fade,
+    _apply_ink_thickness,
     _apply_iron_gall,
     _apply_jpeg_compression,
     _apply_parchment_texture,
@@ -94,6 +96,20 @@ class TestIndividualTransforms:
         out = _apply_staff_hue_shift(score_image, cfg, rng)
         assert out.shape == score_image.shape
         assert out.dtype == np.uint8
+
+    def test_ink_bleeding(self, score_image, rng):
+        cfg = AugmentationConfig()
+        out = _apply_ink_bleeding(score_image, cfg, rng)
+        assert out.shape == score_image.shape
+        assert out.dtype == np.uint8
+        assert not np.array_equal(out, score_image)
+
+    def test_ink_thickness(self, score_image, rng):
+        cfg = AugmentationConfig()
+        out = _apply_ink_thickness(score_image, cfg, rng)
+        assert out.shape == score_image.shape
+        assert out.dtype == np.uint8
+        assert not np.array_equal(out, score_image)
 
     def test_iron_gall(self, score_image, rng):
         cfg = AugmentationConfig()
@@ -177,6 +193,8 @@ class TestAugmentPipeline:
             water_stain_prob=1.0,
             ink_fade_prob=1.0,
             staff_hue_prob=1.0,
+            ink_bleeding_prob=1.0,
+            ink_thickness_prob=1.0,
             iron_gall_prob=1.0,
             salt_deposit_prob=1.0,
             perspective_prob=1.0,
@@ -199,6 +217,8 @@ class TestAugmentPipeline:
             water_stain_prob=0.0,
             ink_fade_prob=0.0,
             staff_hue_prob=0.0,
+            ink_bleeding_prob=0.0,
+            ink_thickness_prob=0.0,
             iron_gall_prob=0.0,
             salt_deposit_prob=0.0,
             perspective_prob=0.0,

@@ -4,7 +4,7 @@ machine-readable <a href=https://gregorio-project.github.io/gabc/ style=color:va
 Built on a ConvNeXt-V2 encoder and Transformer decoder, trained on
 20,000 GregoBase scores with domain augmentation, and deployable via
 ONNX Runtime or OpenVINO on any hardware.</p><div class=hero-buttons><a href=#start class="btn btn-primary">Get Started
-</a><a href=https://github.com/pgarciaq/chant-omr class="btn btn-secondary" target=_blank>View on GitHub</a></div><div class=hero-image><img src=/chant-omr/images/hero_score.jpg alt="A Gregorian chant score rendered in square notation with red four-line staff and black neumes — the type of notation ChantOMR is trained to recognize"></div></div></section><section class=section-alt id=showcase><div class=section-inner><h2 class=section-title>From Clean Render to Aged Manuscript</h2><p class=section-subtitle>The same score transformed by ChantOMR's 13 domain augmentation
+</a><a href=https://github.com/pgarciaq/chant-omr class="btn btn-secondary" target=_blank>View on GitHub</a></div><div class=hero-image><img src=/chant-omr/images/hero_score.jpg alt="A Gregorian chant score rendered in square notation with red four-line staff and black neumes — the type of notation ChantOMR is trained to recognize"></div></div></section><section class=section-alt id=showcase><div class=section-inner><h2 class=section-title>From Clean Render to Aged Manuscript</h2><p class=section-subtitle>The same score transformed by ChantOMR's 15 domain augmentation
 transforms. The model sees a different augmented version every
 epoch&mdash;learning to read through parchment, damage, and
 camera artifacts.</p><div class=showcase-grid><div class=showcase-card><img src=/chant-omr/images/hero_score.jpg alt="Clean computer-rendered score">
@@ -21,7 +21,7 @@ No manual transcription needed.</p></div><div class=feature-card><span class=fea
 podatus, clivis, torculus, porrectus, and their variants. Not a
 repurposed modern-notation or general VLM model.</p></div><div class=feature-card><span class=feature-icon>&#128218;</span><h3>Synthetic Training Data</h3><p>Trained on ~20,000 chants from GregoBase, rendered to PNG by
 Gregorio + LuaLaTeX. CC0 data, fully reproducible pipeline,
-no manual annotation required.</p></div><div class=feature-card><span class=feature-icon>&#127912;</span><h3>Domain Augmentation</h3><p>13 on-the-fly OpenCV transforms bridge the gap between clean renders
+no manual annotation required.</p></div><div class=feature-card><span class=feature-icon>&#127912;</span><h3>Domain Augmentation</h3><p>15 on-the-fly OpenCV transforms bridge the gap between clean renders
 and real manuscripts: parchment texture overlay (34 real patches),
 foxing, ink fade, iron gall corrosion, water stains, perspective
 skew, uneven lighting, and more. See the
@@ -50,7 +50,7 @@ images (fixed width 1050) with a variable-size patch grid&mdash;no
 padding, no cropping, no information loss.</p></div><div class=feature-card><h3>Hardware-Agnostic Deployment</h3><p>Train on NVIDIA CUDA, deploy everywhere. Export to ONNX for
 inference on any hardware via ONNX Runtime, with optional
 OpenVINO acceleration for Intel Arc GPUs and NPUs.</p></div></div></div></section><section class=section-dark id=metrics><div class=section-inner><h2 class=section-title>Metrics & Benchmarks</h2><p class=section-subtitle>Evaluated on the synthetic test split (1,000 clean rendered scores,
-beam_width=3). Trained with domain augmentation (13 transforms).
+beam_width=3). Trained with domain augmentation (15 transforms).
 These are held-out samples the model never trained on.</p><div class=roadmap-items><div class=roadmap-card><span class="roadmap-badge done">3.1%</span><h3>GABC Edit Distance</h3><p>3.1% mean normalized edit distance (target: &lt; 30%).
 The vast majority of samples score below 5%.
 Encoding-equivalence normalization ensures fair comparison.</p></div><div class=roadmap-card><span class="roadmap-badge done">97.0%</span><h3>Neume Accuracy</h3><p>97.0% equiv-normalized neume accuracy (target: > 80%).

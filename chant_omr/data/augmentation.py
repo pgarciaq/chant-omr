@@ -6,7 +6,7 @@ training examples from clean synthetic source images.
 
 Augmentation categories:
 1. Substrate (parchment texture, aging, foxing, water stains)
-2. Ink appearance (fading, staff hue variation)
+2. Ink appearance (fading, staff hue variation, bleeding, thickness variation)
 3. Degradation (iron gall corrosion, salt deposits)
 4. Photography (perspective skew, uneven lighting, shadow, barrel distortion)
 5. Compression artifacts (JPEG quality variation)
@@ -39,6 +39,10 @@ class AugmentationConfig:
     ink_fade_range: tuple[float, float] = (0.7, 0.95)
     staff_hue_prob: float = 0.3
     staff_hue_range: tuple[float, float] = (-15.0, 15.0)
+    ink_bleeding_prob: float = 0.15
+    ink_bleeding_kernel_range: tuple[int, int] = (3, 5)
+    ink_thickness_prob: float = 0.15
+    ink_thickness_kernel_range: tuple[int, int] = (1, 3)
 
     # Degradation
     iron_gall_prob: float = 0.1
@@ -235,6 +239,88 @@ def _apply_iron_gall(
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
+def _apply_ink_bleeding(
+    image: np.ndarray, config: AugmentationConfig, rng: np.random.Generator
+) -> np.ndarray:
+    """Simulate ink spreading along parchment fibers via oriented dilation."""
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    _, ink_mask = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+
+    kernel_len = int(rng.integers(*config.ink_bleeding_kernel_range))
+    angle = float(rng.uniform(0, 180))
+
+    line_kernel = np.zeros((kernel_len, kernel_len), dtype=np.uint8)
+    line_kernel[kernel_len // 2, :] = 1
+    center = (kernel_len // 2, kernel_len // 2)
+    rot = cv2.getRotationMatrix2D(center, angle, 1.0)
+    line_kernel = cv2.warpAffine(
+        line_kernel, rot, (kernel_len, kernel_len),
+        flags=cv2.INTER_NEAREST,
+    )
+    if line_kernel.sum() == 0:
+        line_kernel[kernel_len // 2, kernel_len // 2] = 1
+
+    bled_mask = cv2.dilate(ink_mask, line_kernel, iterations=1)
+    new_ink = cv2.subtract(bled_mask, ink_mask).astype(np.float32) / 255.0
+
+    opacity = float(rng.uniform(0.4, 0.8))
+    ink_color = np.array([20.0, 20.0, 20.0], dtype=np.float32)
+
+    out = image.astype(np.float32)
+    for c in range(3):
+        out[:, :, c] = (
+            out[:, :, c] * (1 - new_ink * opacity)
+            + ink_color[c] * new_ink * opacity
+        )
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def _apply_ink_thickness(
+    image: np.ndarray, config: AugmentationConfig, rng: np.random.Generator
+) -> np.ndarray:
+    """Vary stroke width spatially, simulating quill pressure changes."""
+    h, w = image.shape[:2]
+    kernel_size = int(rng.integers(*config.ink_thickness_kernel_range))
+    if kernel_size < 1:
+        return image
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (kernel_size * 2 + 1, kernel_size * 2 + 1),
+    )
+
+    eroded = cv2.erode(image, kernel, iterations=1)
+    dilated = cv2.dilate(image, kernel, iterations=1)
+
+    direction = rng.choice(["lr", "rl", "tb", "bt", "diag_tl", "diag_tr"])
+    if direction == "lr":
+        grad = np.linspace(-1, 1, w, dtype=np.float32)[np.newaxis, :]
+    elif direction == "rl":
+        grad = np.linspace(1, -1, w, dtype=np.float32)[np.newaxis, :]
+    elif direction == "tb":
+        grad = np.linspace(-1, 1, h, dtype=np.float32)[:, np.newaxis]
+    elif direction == "bt":
+        grad = np.linspace(1, -1, h, dtype=np.float32)[:, np.newaxis]
+    elif direction == "diag_tl":
+        gx = np.linspace(-1, 1, w, dtype=np.float32)
+        gy = np.linspace(-1, 1, h, dtype=np.float32)
+        grad = (gx[np.newaxis, :] + gy[:, np.newaxis]) / 2.0
+    else:
+        gx = np.linspace(1, -1, w, dtype=np.float32)
+        gy = np.linspace(-1, 1, h, dtype=np.float32)
+        grad = (gx[np.newaxis, :] + gy[:, np.newaxis]) / 2.0
+
+    grad = np.broadcast_to(grad, (h, w))
+
+    thin_weight = np.clip(-grad, 0, 1)[:, :, np.newaxis]
+    thick_weight = np.clip(grad, 0, 1)[:, :, np.newaxis]
+
+    out = (
+        image.astype(np.float32) * (1 - thin_weight - thick_weight)
+        + eroded.astype(np.float32) * thin_weight
+        + dilated.astype(np.float32) * thick_weight
+    )
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def _apply_salt_deposits(
     image: np.ndarray, config: AugmentationConfig, rng: np.random.Generator
 ) -> np.ndarray:
@@ -379,6 +465,8 @@ _TRANSFORMS: list[tuple[str, callable]] = [
     ("water_stain_prob", _apply_water_stain),
     ("ink_fade_prob", _apply_ink_fade),
     ("staff_hue_prob", _apply_staff_hue_shift),
+    ("ink_bleeding_prob", _apply_ink_bleeding),
+    ("ink_thickness_prob", _apply_ink_thickness),
     ("iron_gall_prob", _apply_iron_gall),
     ("salt_deposit_prob", _apply_salt_deposits),
     ("perspective_prob", _apply_perspective),
@@ -396,8 +484,8 @@ def augment(
 ) -> np.ndarray:
     """Apply random augmentations to a clean rendered score image.
 
-    Each of the 13 transforms is applied independently with its own
-    probability from the config. On average ~5-6 transforms fire per call.
+    Each of the 15 transforms is applied independently with its own
+    probability from the config. On average ~6-7 transforms fire per call.
 
     Args:
         image: Clean rendered image (H, W, 3), uint8.
