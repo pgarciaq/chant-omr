@@ -67,8 +67,7 @@ but only **Python 3.10** (which is too old — ChantOMR requires `>=3.11`).
 Install Python 3.13 from the deadsnakes PPA before creating the venv.
 
 Disk space needed: **~15 GB** (dataset ~2 GB, venv ~6 GB, checkpoints ~3 GB,
-code + logs ~1 GB).  QuickPod default is 30 GB — just enough; no need to
-increase it.
+code + logs ~1 GB).  QuickPod default is 30 GB — just enough considering you need to install custom software; no need to increase it.
 
 ### Known QuickPod constraints
 
@@ -119,6 +118,7 @@ which PyTorch DataLoader needs for `num_workers > 0`.
 ### 2. SSH in and clone the repo
 
 ```bash
+apt update && apt install git tmux
 ssh root@INSTANCE_IP -p 34200   # connection details from QuickPod dashboard
 git clone https://github.com/pgarciaq/chant-omr.git
 cd chant-omr

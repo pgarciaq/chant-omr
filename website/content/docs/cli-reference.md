@@ -61,33 +61,53 @@ By default runs in dry-run mode (reports but does not delete).
 Run OMR on a single image.
 
 ```bash
-chant-omr predict IMAGE_PATH [--checkpoint PATH] [--beam-width 3]
+chant-omr predict IMAGE_PATH [--checkpoint PATH] [--beam-width 3] \
+    [--grammar-constrained] [--grammar-penalty FLOAT]
 ```
 
 Loads the trained model and decodes the score image into GABC notation,
 printed to stdout.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--checkpoint` | auto-detect | Path to a `.ckpt` file |
+| `--beam-width` | 3 | Beam search width (1 = greedy) |
+| `--grammar-constrained` | off | Enable balanced-parenthesis grammar mask during decoding |
+| `--grammar-penalty` | `-inf` | Logit penalty for grammar-forbidden tokens. `-inf` = hard mask; a finite value like `-10.0` = soft penalty that can be overridden by strong model confidence |
 
 ## `chant-omr evaluate`
 
 Evaluate model on benchmark (image, GABC) pairs.
 
 ```bash
-chant-omr evaluate [--checkpoint PATH] [--benchmark-dir benchmarks/]
+chant-omr evaluate [--checkpoint PATH] [--benchmark-dir benchmarks/] \
+    [--grammar-constrained] [--grammar-penalty FLOAT] [--gregorio-check]
 ```
 
 Reports aggregate metrics: GABC Edit Distance, neume accuracy, and
 structural validity.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--checkpoint` | auto-detect | Path to a `.ckpt` file |
+| `--benchmark-dir` | `benchmarks/` | Directory with paired `.png` + `.gabc` files |
+| `--grammar-constrained` | off | Enable grammar-constrained decoding during evaluation |
+| `--grammar-penalty` | `-inf` | Logit penalty for grammar-forbidden tokens |
+| `--gregorio-check` | off | Compile each prediction through Gregorio to check structural validity (requires `gregorio` binary) |
 
 ## `chant-omr export`
 
 Export the model for deployment.
 
 ```bash
-chant-omr export [--checkpoint PATH] [--format openvino|safetensors]
+chant-omr export [--checkpoint PATH] [--format onnx|openvino|safetensors]
 ```
 
-Exports the encoder and decoder to OpenVINO IR format (for Intel
-hardware inference) or safetensors (for HuggingFace distribution).
+| Format | Description |
+|--------|-------------|
+| `onnx` | **Primary.** ONNX for inference on any hardware via ONNX Runtime (CUDA, DirectML, CoreML, CPU) |
+| `openvino` | Optional. OpenVINO IR for accelerated inference on Intel Arc GPUs and NPUs |
+| `safetensors` | For HuggingFace distribution |
 
 ## `chant-omr audit-tokens`
 

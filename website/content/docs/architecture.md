@@ -83,11 +83,24 @@ See [ADR-0003](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0003-b
 - **Optimizer:** AdamW (lr=1e-4, weight_decay=0.05)
 - **Precision:** bf16-mixed on Ampere+ GPUs
 - **Batch size:** 2 (effective 8 via gradient accumulation)
+- **Early stopping:** patience=10 epochs, halts training when val_loss
+  plateaus (min_delta=0.001)
+- **Domain augmentation:** 13 on-the-fly OpenCV transforms simulate aged
+  manuscripts. See the [Augmentation Guide]({{< relref "augmentation" >}}).
 - **Framework:** PyTorch Lightning
 
 ## Inference
 
-- **Greedy decode** with KV cache (default)
+- **Greedy decode** with KV cache for O(n) autoregressive generation (default)
 - **Beam search** (configurable beam width, default 3)
-- **OpenVINO export** for deployment on Intel hardware
+- **Grammar-constrained decoding:** Optional balanced-parenthesis mask
+  prevents structurally invalid GABC. Supports hard masking (`-inf`) or
+  soft penalty mode (configurable finite penalty, e.g. `-10.0`)
+- **Encoding-equivalence normalization:** Gregorio round-trip normalizes
+  predictions and references before metric computation, ensuring fair
+  comparison across equivalent GABC encodings
+- **Gregorio compilation check:** Gold-standard structural validation by
+  compiling predictions through the Gregorio binary
+- **ONNX export** (primary) for deployment on any hardware via ONNX Runtime
+- **OpenVINO export** (optional) for accelerated inference on Intel hardware
   ([ADR-0012](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0012-openvino-export-and-inference-deployment.md))

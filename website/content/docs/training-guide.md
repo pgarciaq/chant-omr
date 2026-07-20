@@ -60,10 +60,23 @@ scp -P 34200 root@INSTANCE_IP:~/chant-omr/checkpoints/best.ckpt \
 
 | Constraint | Workaround |
 |------------|------------|
-| `/dev/shm` too small | `num_workers: 0` in config |
+| `/dev/shm` too small | Create a custom QuickPod template with `--shm-size=2g` in Docker Options (see below) |
 | 16 GB VRAM OOM | `batch_size: 2` + `accumulate_grad_batches: 4` |
 | Python 3.10 only | Install Python 3.13 from deadsnakes |
 | SSH port 34200 | `-p 34200` for ssh, `-P 34200` for scp |
+
+**Custom QuickPod template ("Pytorch Latest-largeSHM"):**
+The default QuickPod `/dev/shm` is too small for PyTorch multiprocessing
+DataLoaders. With 13 augmentation transforms, `num_workers: 0` causes ~4x
+slower epochs. To fix this:
+
+1. In QuickPod, go to Templates and clone "Pytorch Latest"
+2. Name the clone "Pytorch Latest-largeSHM"
+3. In the **Docker Options** field, add: `--shm-size=2g`
+4. Save and use this template when creating pods
+
+This gives 2 GB of shared memory, enabling `num_workers: 4` in
+`configs/default.yaml` for parallel augmentation.
 
 ## Alternative: Bare metal (NVIDIA GPU)
 
@@ -80,13 +93,18 @@ Training parameters are in `configs/default.yaml`:
 | `batch_size` | 2 | Fits 16 GB VRAM |
 | `accumulate_grad_batches` | 4 | Effective batch size = 8 |
 | `precision` | `bf16-mixed` | Requires Ampere+ GPU |
-| `epochs` | 50 | |
+| `epochs` | 50 | Ceiling; early stopping halts sooner |
+| `early_stopping.patience` | 10 | Stop after 10 epochs with no val_loss improvement |
 | `learning_rate` | 1e-4 | |
-| `num_workers` | 0 | Safe for containers |
+| `num_workers` | 4 | Requires `--shm-size=2g` in container; set to 0 as fallback |
+| `augment` | `true` | 13 domain transforms applied on-the-fly during training |
 
 ## After Training
 
 1. Copy the best checkpoint (lowest `val_loss`) to your development machine
 2. **Terminate the cloud instance** to stop billing
-3. Run evaluation: `chant-omr evaluate --checkpoint checkpoints/best.ckpt`
+3. Run evaluation:
+   ```bash
+   chant-omr evaluate --checkpoint checkpoints/best.ckpt --gregorio-check
+   ```
 4. Export for deployment: `chant-omr export --checkpoint checkpoints/best.ckpt`

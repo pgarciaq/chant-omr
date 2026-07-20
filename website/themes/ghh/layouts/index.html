@@ -27,7 +27,8 @@
       chant manuscripts&mdash;antiphonaries, graduals, hymnals&mdash;into
       machine-readable <a href="https://gregorio-project.github.io/gabc/" style="color: var(--red-staff);">GABC</a> notation.
       Built on a ConvNeXt-V2 encoder and Transformer decoder, trained on
-      20,000 GregoBase scores, and deployable via OpenVINO on Intel hardware.
+      20,000 GregoBase scores with domain augmentation, and deployable via
+      ONNX Runtime on any hardware.
     </p>
     <div class="hero-buttons">
       <a href="#start" class="btn btn-primary">
@@ -88,19 +89,22 @@
         <span class="feature-icon">&#127912;</span>
         <h3>Domain Augmentation</h3>
         <p>
-          On-the-fly aging transforms bridge the gap between clean renders
-          and real manuscripts: parchment texture, foxing, ink fade,
-          perspective skew, and JPEG compression artifacts.
+          13 on-the-fly OpenCV transforms bridge the gap between clean renders
+          and real manuscripts: parchment texture overlay (34 real patches),
+          foxing, ink fade, iron gall corrosion, water stains, perspective
+          skew, uneven lighting, and more. See the
+          <a href="{{ "docs/augmentation/" | relURL }}" style="color: var(--red-staff);">Augmentation Guide</a>.
         </p>
       </div>
 
       <div class="feature-card">
         <span class="feature-icon">&#9889;</span>
-        <h3>OpenVINO Deployment</h3>
+        <h3>Multi-Hardware Deployment</h3>
         <p>
-          Export the trained model to OpenVINO IR format for fast inference
-          on Intel CPUs, Arc GPUs, and NPUs&mdash;no PyTorch runtime needed.
-          Model published on HuggingFace.
+          Export to ONNX for inference on any hardware&mdash;NVIDIA, AMD,
+          Intel, Apple Silicon, or CPU&mdash;via ONNX Runtime. Optional
+          OpenVINO acceleration for Intel Arc GPUs and NPUs. No PyTorch
+          runtime needed.
         </p>
       </div>
 
@@ -260,11 +264,11 @@
       </div>
 
       <div class="feature-card">
-        <h3>Intel-Native Deployment</h3>
+        <h3>Hardware-Agnostic Deployment</h3>
         <p>
-          Export to OpenVINO IR for inference on Intel Arc GPUs and NPUs.
-          Train on NVIDIA CUDA, deploy on Intel&mdash;no vendor lock-in
-          for the inference path.
+          Train on NVIDIA CUDA, deploy everywhere. Export to ONNX for
+          inference on any hardware via ONNX Runtime, with optional
+          OpenVINO acceleration for Intel Arc GPUs and NPUs.
         </p>
       </div>
 
@@ -309,15 +313,15 @@
         <p>
           90% of outputs are syntactically valid GABC (target: &gt; 95%).
           Grammar-constrained decoding and Gregorio compilation checks
-          will close this gap.
+          are now implemented to improve this in future training runs.
         </p>
       </div>
 
     </div>
     <p style="margin-top: 2rem; font-size: 0.88rem; color: var(--parchment-dark);">
-      <strong>Caveat:</strong> evaluated on clean synthetic renders only.
-      Performance on real manuscript photographs will require domain
-      augmentation (parchment aging, foxing, ink fade) to bridge the gap.
+      <strong>Caveat:</strong> evaluated on clean synthetic renders (first training run,
+      before domain augmentation). A second training run with 13 augmentation
+      transforms is in progress&mdash;updated metrics will follow.
     </p>
   </div>
 </section>
