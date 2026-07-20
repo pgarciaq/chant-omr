@@ -648,20 +648,27 @@ chant-omr evaluate checkpoints/best.ckpt \
 
 Compare against the first training run's results:
 
-| Metric | First training | Augmented (no grammar) | Augmented + grammar |
-|--------|---------------|----------------------|---------------------|
-| Mean GED | 0.0841 | ? | ? |
-| Neume accuracy | 92.95% | ? | ? |
-| Structural validity (regex) | 90.0% | ? | ? |
-| Structural validity (gregorio) | N/A | ? | ? |
+| Metric | First training (10 samples) | Augmented baseline (1000 samples) |
+|--------|---------------------------|----------------------------------|
+| Mean GED | 0.0841 | **0.0311** |
+| Equiv-normalized GED | N/A | **0.0311** |
+| Neume accuracy | 92.95% | **96.18%** |
+| Neume accuracy (equiv) | N/A | **97.04%** |
+| Structural validity (regex) | 90.0% | **97.7%** |
+| Gregorio compilation | N/A | **99.0%** |
+| Best epoch | ~43 | **24** |
 
-**What to look for:**
-- **GED should decrease** (augmentation improves generalization)
-- **Neume accuracy should increase** (same reason)
-- **Structural validity should reach 95%+** with grammar constraints
-- **Gregorio validity** is stricter than regex — expect it to be slightly lower
-- If grammar constraints **hurt** GED or neume accuracy, tune with #57 (soft penalty mode)
-- If structural validity is still < 95% even with grammar constraints, open #56 (richer grammar rules)
+**Results (second training, 2026-07-20):**
+
+All targets met or exceeded:
+- GED 3.1% (target < 30%) — 63% relative improvement over first run
+- Neume accuracy 97.0% equiv (target > 80%) — +4.1pp over first run
+- Structural validity 97.7% (target > 95%) — exceeded without grammar constraints
+- Gregorio compilation 99.0% — only 10 failures in 1,000 samples
+- Grammar constraints not needed for structural validity target (available for edge cases)
+
+Gregorio compilation failures (10/1000): mostly syntax errors on long or
+complex chants, one segfault in gregorio itself (exit code -11).
 
 ### 6.4 Copy the best checkpoint back
 

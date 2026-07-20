@@ -320,47 +320,57 @@
   <div class="section-inner">
     <h2 class="section-title">Metrics &amp; Benchmarks</h2>
     <p class="section-subtitle">
-      First evaluation on the synthetic test split (clean rendered scores,
-      10 samples, beam_width=3). These results are on data the model never
-      trained on, but in the same visual domain as training.
+      Evaluated on the synthetic test split (1,000 clean rendered scores,
+      beam_width=3). Trained with domain augmentation (13 transforms).
+      These are held-out samples the model never trained on.
     </p>
     <div class="roadmap-items">
 
       <div class="roadmap-card">
-        <span class="roadmap-badge done">8.4%</span>
+        <span class="roadmap-badge done">3.1%</span>
         <h3>GABC Edit Distance</h3>
         <p>
-          8.4% mean normalized edit distance (target: &lt; 30%).
-          9 of 10 samples scored below 5%. One long-sequence outlier
-          at 66.5% due to likely max-length truncation.
+          3.1% mean normalized edit distance (target: &lt; 30%).
+          The vast majority of samples score below 5%.
+          Encoding-equivalence normalization ensures fair comparison.
         </p>
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge done">92.9%</span>
+        <span class="roadmap-badge done">97.0%</span>
         <h3>Neume Accuracy</h3>
         <p>
-          92.9% mean neume-level accuracy (target: &gt; 80%).
-          7 of 10 samples at 94&ndash;100%. The model has learned
-          pitch, glyph shape, and syllable alignment.
+          97.0% equiv-normalized neume accuracy (target: &gt; 80%).
+          The model reliably recognizes pitch, glyph shape,
+          liquescence, and syllable&ndash;neume alignment.
         </p>
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge next">90.0%</span>
+        <span class="roadmap-badge done">97.7%</span>
         <h3>Structural Validity</h3>
         <p>
-          90% of outputs are syntactically valid GABC (target: &gt; 95%).
+          97.7% of outputs are syntactically valid GABC (target: &gt; 95%).
           Grammar-constrained decoding and Gregorio compilation checks
-          are now implemented to improve this in future training runs.
+          are available to further improve edge cases.
+        </p>
+      </div>
+
+      <div class="roadmap-card">
+        <span class="roadmap-badge done">99.0%</span>
+        <h3>Gregorio Compilation</h3>
+        <p>
+          99.0% of predictions compile successfully through the
+          Gregorio binary&mdash;the gold-standard structural validator.
+          Only 10 failures in 1,000 samples.
         </p>
       </div>
 
     </div>
     <p style="margin-top: 2rem; font-size: 0.88rem; color: var(--parchment-dark);">
-      <strong>Caveat:</strong> evaluated on clean synthetic renders (first training run,
-      before domain augmentation). A second training run with 13 augmentation
-      transforms is in progress&mdash;updated metrics will follow.
+      <strong>Note:</strong> evaluated on clean synthetic renders.
+      Real manuscript performance will be validated separately once
+      annotated manuscript test data is available.
     </p>
   </div>
 </section>

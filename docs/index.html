@@ -49,17 +49,19 @@ on-the-fly augmentation that simulates aged parchment.</p></div><div class=featu
 images (fixed width 1050) with a variable-size patch grid&mdash;no
 padding, no cropping, no information loss.</p></div><div class=feature-card><h3>Hardware-Agnostic Deployment</h3><p>Train on NVIDIA CUDA, deploy everywhere. Export to ONNX for
 inference on any hardware via ONNX Runtime, with optional
-OpenVINO acceleration for Intel Arc GPUs and NPUs.</p></div></div></div></section><section class=section-dark id=metrics><div class=section-inner><h2 class=section-title>Metrics & Benchmarks</h2><p class=section-subtitle>First evaluation on the synthetic test split (clean rendered scores,
-10 samples, beam_width=3). These results are on data the model never
-trained on, but in the same visual domain as training.</p><div class=roadmap-items><div class=roadmap-card><span class="roadmap-badge done">8.4%</span><h3>GABC Edit Distance</h3><p>8.4% mean normalized edit distance (target: &lt; 30%).
-9 of 10 samples scored below 5%. One long-sequence outlier
-at 66.5% due to likely max-length truncation.</p></div><div class=roadmap-card><span class="roadmap-badge done">92.9%</span><h3>Neume Accuracy</h3><p>92.9% mean neume-level accuracy (target: > 80%).
-7 of 10 samples at 94&ndash;100%. The model has learned
-pitch, glyph shape, and syllable alignment.</p></div><div class=roadmap-card><span class="roadmap-badge next">90.0%</span><h3>Structural Validity</h3><p>90% of outputs are syntactically valid GABC (target: > 95%).
+OpenVINO acceleration for Intel Arc GPUs and NPUs.</p></div></div></div></section><section class=section-dark id=metrics><div class=section-inner><h2 class=section-title>Metrics & Benchmarks</h2><p class=section-subtitle>Evaluated on the synthetic test split (1,000 clean rendered scores,
+beam_width=3). Trained with domain augmentation (13 transforms).
+These are held-out samples the model never trained on.</p><div class=roadmap-items><div class=roadmap-card><span class="roadmap-badge done">3.1%</span><h3>GABC Edit Distance</h3><p>3.1% mean normalized edit distance (target: &lt; 30%).
+The vast majority of samples score below 5%.
+Encoding-equivalence normalization ensures fair comparison.</p></div><div class=roadmap-card><span class="roadmap-badge done">97.0%</span><h3>Neume Accuracy</h3><p>97.0% equiv-normalized neume accuracy (target: > 80%).
+The model reliably recognizes pitch, glyph shape,
+liquescence, and syllable&ndash;neume alignment.</p></div><div class=roadmap-card><span class="roadmap-badge done">97.7%</span><h3>Structural Validity</h3><p>97.7% of outputs are syntactically valid GABC (target: > 95%).
 Grammar-constrained decoding and Gregorio compilation checks
-are now implemented to improve this in future training runs.</p></div></div><p style=margin-top:2rem;font-size:.88rem;color:var(--parchment-dark)><strong>Caveat:</strong> evaluated on clean synthetic renders (first training run,
-before domain augmentation). A second training run with 13 augmentation
-transforms is in progress&mdash;updated metrics will follow.</p></div></section><section id=start><div class=section-inner><h2 class=section-title>Getting Started</h2><p class=section-subtitle>Two paths: use the trained model for inference, or train from scratch.</p><div class=getting-started-content><ul class=install-steps><li><div><strong>Clone and install</strong><br><code>git clone https://github.com/pgarciaq/chant-omr.git</code><br><code>pip install -e ".[dev]"</code></div></li><li><div><strong>Download the training corpus</strong><br><code>chant-omr download</code> fetches ~10,000 GABC files from
+are available to further improve edge cases.</p></div><div class=roadmap-card><span class="roadmap-badge done">99.0%</span><h3>Gregorio Compilation</h3><p>99.0% of predictions compile successfully through the
+Gregorio binary&mdash;the gold-standard structural validator.
+Only 10 failures in 1,000 samples.</p></div></div><p style=margin-top:2rem;font-size:.88rem;color:var(--parchment-dark)><strong>Note:</strong> evaluated on clean synthetic renders.
+Real manuscript performance will be validated separately once
+annotated manuscript test data is available.</p></div></section><section id=start><div class=section-inner><h2 class=section-title>Getting Started</h2><p class=section-subtitle>Two paths: use the trained model for inference, or train from scratch.</p><div class=getting-started-content><ul class=install-steps><li><div><strong>Clone and install</strong><br><code>git clone https://github.com/pgarciaq/chant-omr.git</code><br><code>pip install -e ".[dev]"</code></div></li><li><div><strong>Download the training corpus</strong><br><code>chant-omr download</code> fetches ~10,000 GABC files from
 GregoBase (CC0). <code>chant-omr render</code> generates paired PNGs.</div></li><li><div><strong>Train the model</strong><br><code>python scripts/train.py --accelerator cuda</code> on a cloud
 GPU (RTX 5080 at $0.16/hr, ~24h, ~$4 total). See the
 <a href=/chant-omr/docs/training-guide/ style=color:var(--red-staff)>Training Guide</a>.</div></li><li><div><strong>Run inference</strong><br><code>chant-omr predict manuscript_page.png</code> decodes
