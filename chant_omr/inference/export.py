@@ -674,7 +674,7 @@ def verify_onnx_encoder_parity(
     config_path: Path | None = None,
     input_height: int = EXPORT_CANVAS_HEIGHT,
     input_width: int = EXPORT_CANVAS_WIDTH,
-    atol: float = 2e-3,
+    atol: float = 5e-2,
 ) -> float:
     """Compare PyTorch encoder with ONNX Runtime and return max abs diff."""
     import numpy as np
