@@ -10,6 +10,7 @@ This is the inference path for ``chant-omr predict --device openvino``.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -29,14 +30,27 @@ from chant_omr.inference.preprocess import prepare_inference_numpy
 from chant_omr.model.tokenizer import GABCTokenizer
 
 
+@dataclass
+class OvModelBundle:
+    """Pre-loaded OpenVINO models, manifest, and tokenizer."""
+
+    encoder: Any
+    decoder: Any
+    decoder_init: Any
+    decoder_step: Any
+    manifest: dict[str, Any]
+    tokenizer: GABCTokenizer
+
+
 def load_openvino_models(
     model_dir: Path,
     *,
     device: str = "AUTO",
-) -> tuple[Any, Any, Any, Any, dict[str, Any], GABCTokenizer]:
+) -> OvModelBundle:
     """Load compiled OpenVINO IRs, manifest, and tokenizer from *model_dir*.
 
-    Returns ``(encoder, decoder, decoder_init, decoder_step, manifest, tokenizer)``.
+    Returns an :class:`OvModelBundle` with ``encoder``, ``decoder``,
+    ``decoder_init``, ``decoder_step``, ``manifest``, and ``tokenizer``.
 
     The *decoder* is the non-cached IR for beam search; *decoder_init* and
     *decoder_step* are the KV-cached IRs for greedy decoding.
@@ -71,9 +85,13 @@ def load_openvino_models(
         raise FileNotFoundError(f"tokenizer.json not found in {model_dir}")
     tokenizer = GABCTokenizer.load(tok_path)
 
-    return (
-        encoder_compiled, decoder_compiled, init_compiled, step_compiled,
-        manifest, tokenizer,
+    return OvModelBundle(
+        encoder=encoder_compiled,
+        decoder=decoder_compiled,
+        decoder_init=init_compiled,
+        decoder_step=step_compiled,
+        manifest=manifest,
+        tokenizer=tokenizer,
     )
 
 
@@ -158,6 +176,67 @@ def ov_logits_func_cached(
     return _step
 
 
+def _decode_from_pixels(
+    pixel_values_np: np.ndarray,
+    models: OvModelBundle,
+    *,
+    beam_width: int = 1,
+    max_length: int | None = None,
+    repetition_penalty: float = 1.1,
+    grammar_constrained: bool = False,
+    grammar_penalty: float = float("-inf"),
+    name: str | None = None,
+) -> str:
+    """Shared decode logic for both file-path and array entry points."""
+    resolved_max_length = (
+        max_length
+        if max_length is not None
+        else models.manifest.get("config", {}).get("max_seq_len", 8192)
+    )
+
+    encoder_memory = ov_encoder_infer(models.encoder, pixel_values_np)
+    memory_tensor = torch.from_numpy(encoder_memory)
+    encoder_mask_np = np.ones((1, encoder_memory.shape[1]), dtype=np.float32)
+
+    tokenizer = models.tokenizer
+    gm: GrammarMask | None = None
+    if grammar_constrained:
+        paren_table = build_paren_table(tokenizer)
+        gm = GrammarMask(
+            paren_table, tokenizer.eos_id, tokenizer.vocab_size,
+            penalty=grammar_penalty,
+        )
+
+    if beam_width <= 1:
+        logits_fn = ov_logits_func_cached(
+            models.decoder_init, models.decoder_step, encoder_mask_np,
+        )
+        token_ids = greedy_decode_generic(
+            logits_fn,
+            memory_tensor,
+            bos_token_id=tokenizer.bos_id,
+            eos_token_id=tokenizer.eos_id,
+            max_length=resolved_max_length,
+            repetition_penalty=repetition_penalty,
+            grammar_mask=gm,
+        )
+    else:
+        logits_fn = ov_decoder_logits_func(models.decoder, encoder_mask_np)
+        token_ids = beam_search_decode_generic(
+            logits_fn,
+            memory_tensor,
+            bos_token_id=tokenizer.bos_id,
+            eos_token_id=tokenizer.eos_id,
+            max_length=resolved_max_length,
+            beam_width=beam_width,
+            repetition_penalty=repetition_penalty,
+            grammar_mask=gm,
+        )
+
+    body = tokenizer.decode(token_ids, skip_special_tokens=True)
+    return assemble_gabc(body, name=name or "OMR output")
+
+
 def ov_predict_gabc(
     image_path: Path,
     model_dir: Path,
@@ -178,52 +257,46 @@ def ov_predict_gabc(
 
     Grammar-constrained decoding is supported on both paths.
     """
-    enc, dec, init, step, manifest, tokenizer = load_openvino_models(
-        model_dir, device=ov_device,
-    )
-    resolved_max_length = (
-        max_length
-        if max_length is not None
-        else manifest.get("config", {}).get("max_seq_len", 8192)
-    )
-
+    models = load_openvino_models(model_dir, device=ov_device)
     pixel_values_np = prepare_inference_numpy(Path(image_path))
+    return _decode_from_pixels(
+        pixel_values_np,
+        models,
+        beam_width=beam_width,
+        max_length=max_length,
+        repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
+        grammar_penalty=grammar_penalty,
+        name=name,
+    )
 
-    encoder_memory = ov_encoder_infer(enc, pixel_values_np)
-    memory_tensor = torch.from_numpy(encoder_memory)
-    encoder_mask_np = np.ones((1, encoder_memory.shape[1]), dtype=np.float32)
 
-    gm: GrammarMask | None = None
-    if grammar_constrained:
-        paren_table = build_paren_table(tokenizer)
-        gm = GrammarMask(
-            paren_table, tokenizer.eos_id, tokenizer.vocab_size,
-            penalty=grammar_penalty,
-        )
+def ov_predict_gabc_from_array(
+    img_array: np.ndarray,
+    models: OvModelBundle,
+    *,
+    beam_width: int = 1,
+    max_length: int | None = None,
+    repetition_penalty: float = 1.1,
+    grammar_constrained: bool = False,
+    grammar_penalty: float = float("-inf"),
+    name: str | None = None,
+) -> str:
+    """Run OpenVINO OMR inference on an in-memory image array and return GABC.
 
-    if beam_width <= 1:
-        logits_fn = ov_logits_func_cached(init, step, encoder_mask_np)
-        token_ids = greedy_decode_generic(
-            logits_fn,
-            memory_tensor,
-            bos_token_id=tokenizer.bos_id,
-            eos_token_id=tokenizer.eos_id,
-            max_length=resolved_max_length,
-            repetition_penalty=repetition_penalty,
-            grammar_mask=gm,
-        )
-    else:
-        logits_fn = ov_decoder_logits_func(dec, encoder_mask_np)
-        token_ids = beam_search_decode_generic(
-            logits_fn,
-            memory_tensor,
-            bos_token_id=tokenizer.bos_id,
-            eos_token_id=tokenizer.eos_id,
-            max_length=resolved_max_length,
-            beam_width=beam_width,
-            repetition_penalty=repetition_penalty,
-            grammar_mask=gm,
-        )
+    Accepts a pre-loaded :class:`OvModelBundle` so the caller can reuse
+    compiled models across many images (avoiding repeated compilation).
 
-    body = tokenizer.decode(token_ids, skip_special_tokens=True)
-    return assemble_gabc(body, name=name or "OMR output")
+    *img_array* must be a ``(1, 3, H, W)`` float32 numpy array as returned
+    by :func:`~chant_omr.inference.preprocess.prepare_inference_numpy_from_array`.
+    """
+    return _decode_from_pixels(
+        img_array,
+        models,
+        beam_width=beam_width,
+        max_length=max_length,
+        repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
+        grammar_penalty=grammar_penalty,
+        name=name,
+    )

@@ -498,18 +498,18 @@ class TestOVDecodeIntegration:
             ov_logits_func_cached,
         )
 
-        enc, _dec, init, step, manifest, tok = load_openvino_models(out_dir)
+        bundle = load_openvino_models(out_dir)
         dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
-        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory = ov_encoder_infer(bundle.encoder, dummy_pixels)
         memory_t = torch.from_numpy(memory)
         mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
 
-        logits_fn = ov_logits_func_cached(init, step, mask_np)
+        logits_fn = ov_logits_func_cached(bundle.decoder_init, bundle.decoder_step, mask_np)
         token_ids = greedy_decode_generic(
             logits_fn, memory_t,
-            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id, max_length=8,
+            bos_token_id=bundle.tokenizer.bos_id, eos_token_id=bundle.tokenizer.eos_id, max_length=8,
         )
-        assert token_ids[0] == tok.bos_id
+        assert token_ids[0] == bundle.tokenizer.bos_id
         assert len(token_ids) >= 2
 
     def test_ov_noncached_beam_produces_tokens(self, config_and_ckpt, tokenizer, tmp_path):
@@ -526,19 +526,19 @@ class TestOVDecodeIntegration:
             ov_encoder_infer,
         )
 
-        enc, dec, _init, _step, manifest, tok = load_openvino_models(out_dir)
+        bundle = load_openvino_models(out_dir)
         dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
-        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory = ov_encoder_infer(bundle.encoder, dummy_pixels)
         memory_t = torch.from_numpy(memory)
         mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
 
-        logits_fn = ov_decoder_logits_func(dec, mask_np)
+        logits_fn = ov_decoder_logits_func(bundle.decoder, mask_np)
         token_ids = beam_search_decode_generic(
             logits_fn, memory_t,
-            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id,
+            bos_token_id=bundle.tokenizer.bos_id, eos_token_id=bundle.tokenizer.eos_id,
             max_length=8, beam_width=3,
         )
-        assert token_ids[0] == tok.bos_id
+        assert token_ids[0] == bundle.tokenizer.bos_id
         assert len(token_ids) >= 2
 
     def test_ov_cached_greedy_decoded_is_string(self, config_and_ckpt, tokenizer, tmp_path):
@@ -555,19 +555,19 @@ class TestOVDecodeIntegration:
             ov_logits_func_cached,
         )
 
-        enc, _dec, init, step, _manifest, tok = load_openvino_models(out_dir)
+        bundle = load_openvino_models(out_dir)
         dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
-        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory = ov_encoder_infer(bundle.encoder, dummy_pixels)
         memory_t = torch.from_numpy(memory)
         mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
 
-        logits_fn = ov_logits_func_cached(init, step, mask_np)
+        logits_fn = ov_logits_func_cached(bundle.decoder_init, bundle.decoder_step, mask_np)
         token_ids = greedy_decode_generic(
             logits_fn, memory_t,
-            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id,
+            bos_token_id=bundle.tokenizer.bos_id, eos_token_id=bundle.tokenizer.eos_id,
             max_length=32,
         )
-        decoded = tok.decode(token_ids, skip_special_tokens=True)
+        decoded = bundle.tokenizer.decode(token_ids, skip_special_tokens=True)
         assert isinstance(decoded, str)
 
 
