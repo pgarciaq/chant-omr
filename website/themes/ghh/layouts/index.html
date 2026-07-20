@@ -89,11 +89,10 @@
   <div class="section-inner">
     <h2 class="section-title">What It Does</h2>
     <p class="section-subtitle">
-      A ~59M parameter vision-encoder-decoder following
-      <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>&rsquo;s
-      architecture, retrained from scratch for Gregorian square notation.
-      Not a general-purpose sheet music recognizer&mdash;a specialist that
-      understands neumes, clefs, and four-line staves.
+      A ~59M parameter vision-encoder-decoder trained from scratch for
+      Gregorian square notation. Not a general-purpose sheet music
+      recognizer&mdash;a specialist that understands neumes, clefs, and
+      four-line staves.
     </p>
     <div class="features-grid">
 
@@ -170,8 +169,7 @@
   <div class="section-inner">
     <h2 class="section-title">Architecture</h2>
     <p class="section-subtitle">
-      Architecture follows <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>:
-      end-to-end vision-encoder-decoder where the image goes in and GABC tokens come out.
+      End-to-end vision-encoder-decoder: the image goes in, GABC tokens come out.
       No separate staff detection, segmentation, or symbol classification stages.
     </p>
 
@@ -273,10 +271,9 @@
         <h3>Specialist, Not VLM</h3>
         <p>
           General vision-language models (GPT-4o, Gemini) hallucinate
-          notation and lack GABC knowledge. ChantOMR uses
-          <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>&rsquo;s
-          59M-parameter specialist architecture&mdash;1000x smaller than a VLM,
-          100x faster, and domain-accurate.
+          notation and lack GABC knowledge. ChantOMR is a 59M-parameter
+          specialist&mdash;1000x smaller than a VLM, 100x faster, and
+          domain-accurate.
         </p>
       </div>
 
