@@ -57,6 +57,15 @@ class TestGabcHelpers:
         assert "(c3)AU(h)ri(h)bus" in body
         assert "annotation:" not in body
 
+    def test_body_only_gabc_text_extra_headers(self):
+        raw = RESPICE_GABC.read_text(encoding="utf-8")
+        body = rd.body_only_gabc_text(
+            raw, name="test", extra_headers={"nabc-lines": "1"},
+        )
+        assert "nabc-lines: 1;" in body
+        header = body.split("%%", 1)[0]
+        assert "nabc-lines: 1;" in header
+
     def test_extract_render_body(self):
         raw = (FIXTURES / "double_header.gabc").read_text(encoding="utf-8")
         assert rd.extract_render_body(raw).startswith("(c3)AU")
@@ -155,6 +164,13 @@ class TestRenderStats:
         assert stats.skipped_nabc == 1
         assert stats.failed == 0
 
+    def test_tally_rendered_nabc(self):
+        stats = rd.RenderStats(attempted=1)
+        stats._tally("rendered_nabc")
+        assert stats.rendered == 1
+        assert stats.rendered_nabc == 1
+        assert stats.failed == 0
+
     def test_tally_failed_missing(self):
         stats = rd.RenderStats(attempted=1)
         stats._tally("failed_missing")
@@ -213,6 +229,32 @@ class TestRenderCorpusMocked:
         assert stats.skipped == 1
         assert stats.skipped_nabc == 1
         assert stats.failed == 0
+
+    def test_nabc_still_skipped_without_include_flag(self, tmp_path: Path):
+        """Regression: default render (no --include-nabc) still skips NABC."""
+        gabc_dir = tmp_path / "gregobase"
+        rendered_dir = tmp_path / "rendered"
+        gabc_dir.mkdir()
+        (gabc_dir / "16305.gabc").write_bytes((FIXTURES / "nabc_sample.gabc").read_bytes())
+        manifest = gb.Manifest(
+            entries=[
+                gb.ManifestEntry(
+                    id=16305, elem=None, office_part="Alleluia",
+                    incipit="NABC sample", filename="16305.gabc",
+                    sha256="abc", size_bytes=100, status="ok",
+                    source="fixture", error=None,
+                )
+            ]
+        )
+        manifest.save(gabc_dir / gb.MANIFEST_FILENAME)
+
+        with patch.object(rd, "toolchain_available", return_value=True):
+            stats = rd.render_corpus(
+                gabc_dir, rendered_dir, show_progress=False, include_nabc=False,
+            )
+
+        assert stats.skipped_nabc == 1
+        assert stats.rendered_nabc == 0
 
     def test_missing_gabc_logs_failure(self, tmp_path: Path):
         gabc_dir = tmp_path / "gregobase"
@@ -347,3 +389,23 @@ class TestRenderIntegration:
         assert stats.rendered == 1
         assert (rendered_dir / "5000.png").exists()
         assert (rendered_dir / "5000.gabc").exists()
+
+    def test_render_nabc_with_include_flag(self, tmp_path: Path):
+        """NABC file renders when include_nabc=True."""
+        gabc_path = tmp_path / "16305.gabc"
+        gabc_path.write_bytes((FIXTURES / "nabc_sample.gabc").read_bytes())
+        output = tmp_path / "16305.png"
+        rd.render_gabc_to_image(
+            gabc_path, output, dpi=150, include_nabc=True,
+        )
+        assert output.exists()
+        assert output.stat().st_size > 500
+
+    def test_render_nabc_rejected_without_include_flag(self, tmp_path: Path):
+        """NABC file raises ValueError without include_nabc."""
+        gabc_path = tmp_path / "16305.gabc"
+        gabc_path.write_bytes((FIXTURES / "nabc_sample.gabc").read_bytes())
+        output = tmp_path / "16305.png"
+        import pytest
+        with pytest.raises(ValueError, match="NABC"):
+            rd.render_gabc_to_image(gabc_path, output, dpi=150)

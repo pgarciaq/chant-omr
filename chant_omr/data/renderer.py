@@ -76,6 +76,7 @@ class RenderStats:
     skipped: int = 0
     failed: int = 0
     skipped_nabc: int = 0
+    rendered_nabc: int = 0
     failed_missing: int = 0
     failed_compile: int = 0
 
@@ -90,6 +91,9 @@ class RenderStats:
         """Increment the appropriate counters for a job status string."""
         if status == "rendered":
             self.rendered += 1
+        elif status == "rendered_nabc":
+            self.rendered += 1
+            self.rendered_nabc += 1
         elif status == "skipped":
             self.skipped += 1
         elif status == "skipped_nabc":
@@ -184,12 +188,18 @@ def extract_render_body(text: str) -> str:
     return extract_gabc_body(text)
 
 
-def body_only_gabc_text(text: str, *, name: str) -> str:
+def body_only_gabc_text(
+    text: str, *, name: str, extra_headers: dict[str, str] | None = None,
+) -> str:
     """Strip headers and rebuild a minimal body-only GABC for rendering."""
     score = parse_gabc(text)
     display_name = name.strip() or score.name or "chant"
     body = extract_render_body(text)
-    return f"name: {display_name};\n%%\n{body}\n"
+    header = f"name: {display_name};\n"
+    if extra_headers:
+        for k, v in extra_headers.items():
+            header += f"{k}: {v};\n"
+    return f"{header}%%\n{body}\n"
 
 
 def build_nomargin_tex(score_stem: str, *, hsize: str = SCORE_HSIZE) -> str:
@@ -317,19 +327,27 @@ def render_gabc_to_image(
     work_dir: Path | None = None,
     display_name: str | None = None,
     score_stem: str | None = None,
+    include_nabc: bool = False,
 ) -> Path:
     """Render one GABC file to a tight-crop PNG via Gregorio autocompile."""
     if not toolchain_available():
         raise RuntimeError("Gregorio toolchain not available (gregorio, lualatex, pdftoppm)")
 
     raw_text = gabc_path.read_text(encoding="utf-8")
-    if is_nabc_notation(raw_text):
+    is_nabc = is_nabc_notation(raw_text)
+    if is_nabc and not include_nabc:
         raise ValueError(NABC_NOT_SUPPORTED)
+
+    extra_headers: dict[str, str] | None = None
+    if is_nabc and include_nabc:
+        from chant_omr.data.nabc import infer_nabc_lines
+        n_lines = infer_nabc_lines(raw_text)
+        extra_headers = {"nabc-lines": str(n_lines)}
 
     score = load_gabc(gabc_path)
 
     label = display_name or score.name or gabc_path.stem
-    body_text = body_only_gabc_text(raw_text, name=label)
+    body_text = body_only_gabc_text(raw_text, name=label, extra_headers=extra_headers)
     stem = score_stem or gabc_path.stem
 
     cleanup = work_dir is None
@@ -369,6 +387,7 @@ def _render_job(
     dpi: int,
     force: bool,
     failures_path: Path,
+    include_nabc: bool = False,
 ) -> tuple[str, bool, str | None]:
     """Worker entry point: returns (status, changed, error)."""
     if job.png_path.exists() and not force:
@@ -387,10 +406,20 @@ def _render_job(
 
     try:
         raw_text = job.gabc_path.read_text(encoding="utf-8")
-        if is_nabc_notation(raw_text):
+        is_nabc = is_nabc_notation(raw_text)
+        if is_nabc and not include_nabc:
             return ("skipped_nabc", False, NABC_NOT_SUPPORTED)
 
-        body_text = body_only_gabc_text(raw_text, name=job.entry.incipit or job.gabc_path.stem)
+        extra_headers: dict[str, str] | None = None
+        if is_nabc and include_nabc:
+            from chant_omr.data.nabc import infer_nabc_lines
+            n_lines = infer_nabc_lines(raw_text)
+            extra_headers = {"nabc-lines": str(n_lines)}
+
+        body_text = body_only_gabc_text(
+            raw_text, name=job.entry.incipit or job.gabc_path.stem,
+            extra_headers=extra_headers,
+        )
         stem = work_score_stem(job.entry.id, job.entry.elem)
         render_gabc_to_image(
             job.gabc_path,
@@ -398,9 +427,10 @@ def _render_job(
             dpi=dpi,
             display_name=job.entry.incipit or None,
             score_stem=stem,
+            include_nabc=include_nabc,
         )
         link_or_copy_gabc(job.gabc_path, job.gabc_link_path, body_text=body_text)
-        return ("rendered", True, None)
+        return ("rendered_nabc" if is_nabc else "rendered", True, None)
     except Exception as exc:  # noqa: BLE001 — log and continue batch
         error = str(exc)
         append_failure_log(
@@ -428,6 +458,7 @@ def render_corpus(
     workers: int = DEFAULT_WORKERS,
     force: bool = False,
     show_progress: bool = True,
+    include_nabc: bool = False,
 ) -> RenderStats:
     """Render manifest ``ok`` GABC entries into ``output_dir``."""
     if not toolchain_available():
@@ -458,11 +489,17 @@ def render_corpus(
     if worker_count <= 1:
         _init_render_worker(str(cache_dir))
         for job in progress:
-            status, _, _ = _render_job(job, dpi=dpi, force=force, failures_path=failures_path)
+            status, _, _ = _render_job(
+                job, dpi=dpi, force=force, failures_path=failures_path,
+                include_nabc=include_nabc,
+            )
             stats._tally(status)
         return stats
 
-    render_fn = partial(_render_job, dpi=dpi, force=force, failures_path=failures_path)
+    render_fn = partial(
+        _render_job, dpi=dpi, force=force, failures_path=failures_path,
+        include_nabc=include_nabc,
+    )
     with ProcessPoolExecutor(
         max_workers=worker_count,
         initializer=_init_render_worker,

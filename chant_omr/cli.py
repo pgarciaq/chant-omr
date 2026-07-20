@@ -435,7 +435,13 @@ def collapse_nabc(gabc_dir, output_dir, only_if_plain_missing):
     is_flag=True,
     help="Force the progress bar even when stderr is not a TTY",
 )
-def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progress):
+@click.option(
+    "--include-nabc",
+    is_flag=True,
+    help="Render NABC files with nabc-lines header (instead of skipping them)",
+)
+def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progress,
+           include_nabc):
     """Render GABC files into score images using Gregorio."""
     import sys
     from pathlib import Path
@@ -464,6 +470,7 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
         workers=workers,
         force=force,
         show_progress=show_progress,
+        include_nabc=include_nabc,
     )
     worker_count = resolve_render_workers(workers)
     pct = f" ({stats.success_rate:.0%})" if stats.attempted else ""
@@ -472,9 +479,10 @@ def render(gabc_dir, output_dir, limit, dpi, workers, force, no_progress, progre
         f"Rendered: {stats.rendered}{pct} | Skipped: {stats.skipped} | "
         f"Failed: {stats.failed} | Workers: {worker_count}"
     )
-    if stats.skipped_nabc or stats.failed_missing or stats.failed_compile:
+    if stats.skipped_nabc or stats.rendered_nabc or stats.failed_missing or stats.failed_compile:
         click.echo(
             f"  NABC skipped: {stats.skipped_nabc} | "
+            f"NABC rendered: {stats.rendered_nabc} | "
             f"Missing GABC: {stats.failed_missing} | "
             f"Compile errors: {stats.failed_compile}"
         )

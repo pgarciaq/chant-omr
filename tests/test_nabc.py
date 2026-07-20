@@ -172,6 +172,51 @@ class TestCollapseNabcCorpus:
         assert stats.skipped_has_twin == 0
 
 
+class TestInferNabcLines:
+    def test_depth_one(self):
+        text = "name:test;\n%%\n(c|ta)(d|vi)"
+        assert infer_nabc_lines(text) == 1
+
+    def test_no_pipes_returns_one(self):
+        text = "name:test;\n%%\n(c4) Ky(f)ri(gf)e(h)"
+        assert infer_nabc_lines(text) == 1
+
+    def test_deeper_pipes(self):
+        text = "name:test;\n%%\n(c|ta|vi|extra)"
+        assert infer_nabc_lines(text) == 2
+
+    def test_mixed_depths(self):
+        text = "name:test;\n%%\n(a|x)(b|y|z|w)"
+        assert infer_nabc_lines(text) == 2
+
+    def test_fixture_file(self):
+        text = NABC_GABC.decode("utf-8")
+        assert infer_nabc_lines(text) == 1
+
+
+class TestInjectNabcHeader:
+    def test_injects_when_missing(self):
+        text = "name:test;\nmode:3;\n%%\n(c|ta)"
+        result = inject_nabc_header(text)
+        assert "nabc-lines: 1;" in result
+        assert result.index("nabc-lines") < result.index("%%")
+
+    def test_preserves_existing(self):
+        text = "name:test;\nnabc-lines: 2;\n%%\n(c|ta)"
+        result = inject_nabc_header(text)
+        assert result == text
+
+    def test_explicit_n_lines(self):
+        text = "name:test;\n%%\n(c|ta)"
+        result = inject_nabc_header(text, n_lines=3)
+        assert "nabc-lines: 3;" in result
+
+    def test_infer_from_body(self):
+        text = "name:test;\n%%\n(c|ta|vi|extra)"
+        result = inject_nabc_header(text)
+        assert "nabc-lines: 2;" in result
+
+
 CORPUS_DIR = Path(__file__).parent.parent / "data" / "gregobase"
 
 
