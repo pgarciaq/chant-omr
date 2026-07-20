@@ -2,8 +2,18 @@
 chant manuscripts&mdash;antiphonaries, graduals, hymnals&mdash;into
 machine-readable <a href=https://gregorio-project.github.io/gabc/ style=color:var(--red-staff)>GABC</a> notation.
 Built on a ConvNeXt-V2 encoder and Transformer decoder, trained on
-20,000 GregoBase scores, and deployable via OpenVINO on Intel hardware.</p><div class=hero-buttons><a href=#start class="btn btn-primary">Get Started
-</a><a href=https://github.com/pgarciaq/chant-omr class="btn btn-secondary" target=_blank>View on GitHub</a></div><div class=hero-image><img src=/chant-omr/images/hero_score.jpg alt="A Gregorian chant score rendered in square notation with red four-line staff and black neumes — the type of notation ChantOMR is trained to recognize"></div></div></section><section class=section-alt id=features><div class=section-inner><h2 class=section-title>What It Does</h2><p class=section-subtitle>A ~59M parameter vision-encoder-decoder model purpose-built for
+20,000 GregoBase scores with domain augmentation, and deployable via
+ONNX Runtime on any hardware.</p><div class=hero-buttons><a href=#start class="btn btn-primary">Get Started
+</a><a href=https://github.com/pgarciaq/chant-omr class="btn btn-secondary" target=_blank>View on GitHub</a></div><div class=hero-image><img src=/chant-omr/images/hero_score.jpg alt="A Gregorian chant score rendered in square notation with red four-line staff and black neumes — the type of notation ChantOMR is trained to recognize"></div></div></section><section class=section-alt id=showcase><div class=section-inner><h2 class=section-title>From Clean Render to Aged Manuscript</h2><p class=section-subtitle>The same score transformed by ChantOMR's 13 domain augmentation
+transforms. The model sees a different augmented version every
+epoch&mdash;learning to read through parchment, damage, and
+camera artifacts.</p><div class=showcase-grid><div class=showcase-card><img src=/chant-omr/images/hero_score.jpg alt="Clean computer-rendered score">
+<span class=showcase-label>Clean render</span></div><div class=showcase-card><img src=/chant-omr/images/showcase_parchment.jpg alt="Score with parchment texture overlay">
+<span class=showcase-label>Parchment texture</span></div><div class=showcase-card><img src=/chant-omr/images/showcase_foxing.jpg alt="Score with foxing spots and ink fade">
+<span class=showcase-label>Foxing + ink fade</span></div><div class=showcase-card><img src=/chant-omr/images/showcase_iron_gall.jpg alt="Score with iron gall corrosion halos">
+<span class=showcase-label>Iron gall corrosion</span></div><div class=showcase-card><img src=/chant-omr/images/showcase_photography.jpg alt="Score with perspective skew and uneven lighting">
+<span class=showcase-label>Camera artifacts</span></div><div class=showcase-card><img src=/chant-omr/images/showcase_heavily_aged.jpg alt="Score with heavy aging: all transforms combined">
+<span class=showcase-label>Heavily aged</span></div></div></div></section><section class=section-alt id=features><div class=section-inner><h2 class=section-title>What It Does</h2><p class=section-subtitle>A ~59M parameter vision-encoder-decoder model purpose-built for
 Gregorian square notation. Not a general-purpose sheet music recognizer&mdash;a
 specialist that understands neumes, clefs, and four-line staves.</p><div class=features-grid><div class=feature-card><span class=feature-icon>&#127926;</span><h3>Photograph to Notation</h3><p>Feed a photograph of a chant page, get structured GABC notation
 ready to typeset with Gregorio or import into chant databases.
@@ -11,11 +21,14 @@ No manual transcription needed.</p></div><div class=feature-card><span class=fea
 podatus, clivis, torculus, porrectus, and their variants. Not a
 repurposed modern-notation or general VLM model.</p></div><div class=feature-card><span class=feature-icon>&#128218;</span><h3>Synthetic Training Data</h3><p>Trained on ~20,000 chants from GregoBase, rendered to PNG by
 Gregorio + LuaLaTeX. CC0 data, fully reproducible pipeline,
-no manual annotation required.</p></div><div class=feature-card><span class=feature-icon>&#127912;</span><h3>Domain Augmentation</h3><p>On-the-fly aging transforms bridge the gap between clean renders
-and real manuscripts: parchment texture, foxing, ink fade,
-perspective skew, and JPEG compression artifacts.</p></div><div class=feature-card><span class=feature-icon>&#9889;</span><h3>OpenVINO Deployment</h3><p>Export the trained model to OpenVINO IR format for fast inference
-on Intel CPUs, Arc GPUs, and NPUs&mdash;no PyTorch runtime needed.
-Model published on HuggingFace.</p></div><div class=feature-card><span class=feature-icon>&#128279;</span><h3>ghh Integration</h3><p>Plugs into Stage 12 of
+no manual annotation required.</p></div><div class=feature-card><span class=feature-icon>&#127912;</span><h3>Domain Augmentation</h3><p>13 on-the-fly OpenCV transforms bridge the gap between clean renders
+and real manuscripts: parchment texture overlay (34 real patches),
+foxing, ink fade, iron gall corrosion, water stains, perspective
+skew, uneven lighting, and more. See the
+<a href=/chant-omr/docs/augmentation/ style=color:var(--red-staff)>Augmentation Guide</a>.</p></div><div class=feature-card><span class=feature-icon>&#9889;</span><h3>Multi-Hardware Deployment</h3><p>Export to ONNX for inference on any hardware&mdash;NVIDIA, AMD,
+Intel, Apple Silicon, or CPU&mdash;via ONNX Runtime. Optional
+OpenVINO acceleration for Intel Arc GPUs and NPUs. No PyTorch
+runtime needed.</p></div><div class=feature-card><span class=feature-icon>&#128279;</span><h3>ghh Integration</h3><p>Plugs into Stage 12 of
 <a href=https://pgarciaq.github.io/ghh/ style=color:var(--red-staff)>Guido's Helping Hand</a>&mdash;the
 open-source pipeline that transforms smartphone photos of chant
 books into searchable PDFs.</p></div></div></div></section><section id=architecture><div class=section-inner><h2 class=section-title>Architecture</h2><p class=section-subtitle>An end-to-end vision-encoder-decoder: the image goes in, GABC tokens come out.
@@ -34,9 +47,9 @@ alignment&mdash;and is typesetable by Gregorio.</p></div><div class=feature-card
 chants rendered by Gregorio, then bridge the domain gap with
 on-the-fly augmentation that simulates aged parchment.</p></div><div class=feature-card><h3>Variable-Height Input</h3><p>Score strips vary in length. ChantOMR accepts variable-height
 images (fixed width 1050) with a variable-size patch grid&mdash;no
-padding, no cropping, no information loss.</p></div><div class=feature-card><h3>Intel-Native Deployment</h3><p>Export to OpenVINO IR for inference on Intel Arc GPUs and NPUs.
-Train on NVIDIA CUDA, deploy on Intel&mdash;no vendor lock-in
-for the inference path.</p></div></div></div></section><section class=section-dark id=metrics><div class=section-inner><h2 class=section-title>Metrics & Benchmarks</h2><p class=section-subtitle>First evaluation on the synthetic test split (clean rendered scores,
+padding, no cropping, no information loss.</p></div><div class=feature-card><h3>Hardware-Agnostic Deployment</h3><p>Train on NVIDIA CUDA, deploy everywhere. Export to ONNX for
+inference on any hardware via ONNX Runtime, with optional
+OpenVINO acceleration for Intel Arc GPUs and NPUs.</p></div></div></div></section><section class=section-dark id=metrics><div class=section-inner><h2 class=section-title>Metrics & Benchmarks</h2><p class=section-subtitle>First evaluation on the synthetic test split (clean rendered scores,
 10 samples, beam_width=3). These results are on data the model never
 trained on, but in the same visual domain as training.</p><div class=roadmap-items><div class=roadmap-card><span class="roadmap-badge done">8.4%</span><h3>GABC Edit Distance</h3><p>8.4% mean normalized edit distance (target: &lt; 30%).
 9 of 10 samples scored below 5%. One long-sequence outlier
@@ -44,9 +57,9 @@ at 66.5% due to likely max-length truncation.</p></div><div class=roadmap-card><
 7 of 10 samples at 94&ndash;100%. The model has learned
 pitch, glyph shape, and syllable alignment.</p></div><div class=roadmap-card><span class="roadmap-badge next">90.0%</span><h3>Structural Validity</h3><p>90% of outputs are syntactically valid GABC (target: > 95%).
 Grammar-constrained decoding and Gregorio compilation checks
-will close this gap.</p></div></div><p style=margin-top:2rem;font-size:.88rem;color:var(--parchment-dark)><strong>Caveat:</strong> evaluated on clean synthetic renders only.
-Performance on real manuscript photographs will require domain
-augmentation (parchment aging, foxing, ink fade) to bridge the gap.</p></div></section><section id=start><div class=section-inner><h2 class=section-title>Getting Started</h2><p class=section-subtitle>Two paths: use the trained model for inference, or train from scratch.</p><div class=getting-started-content><ul class=install-steps><li><div><strong>Clone and install</strong><br><code>git clone https://github.com/pgarciaq/chant-omr.git</code><br><code>pip install -e ".[dev]"</code></div></li><li><div><strong>Download the training corpus</strong><br><code>chant-omr download</code> fetches ~10,000 GABC files from
+are now implemented to improve this in future training runs.</p></div></div><p style=margin-top:2rem;font-size:.88rem;color:var(--parchment-dark)><strong>Caveat:</strong> evaluated on clean synthetic renders (first training run,
+before domain augmentation). A second training run with 13 augmentation
+transforms is in progress&mdash;updated metrics will follow.</p></div></section><section id=start><div class=section-inner><h2 class=section-title>Getting Started</h2><p class=section-subtitle>Two paths: use the trained model for inference, or train from scratch.</p><div class=getting-started-content><ul class=install-steps><li><div><strong>Clone and install</strong><br><code>git clone https://github.com/pgarciaq/chant-omr.git</code><br><code>pip install -e ".[dev]"</code></div></li><li><div><strong>Download the training corpus</strong><br><code>chant-omr download</code> fetches ~10,000 GABC files from
 GregoBase (CC0). <code>chant-omr render</code> generates paired PNGs.</div></li><li><div><strong>Train the model</strong><br><code>python scripts/train.py --accelerator cuda</code> on a cloud
 GPU (RTX 5080 at $0.16/hr, ~24h, ~$4 total). See the
 <a href=/chant-omr/docs/training-guide/ style=color:var(--red-staff)>Training Guide</a>.</div></li><li><div><strong>Run inference</strong><br><code>chant-omr predict manuscript_page.png</code> decodes

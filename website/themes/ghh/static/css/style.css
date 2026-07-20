@@ -173,6 +173,45 @@ section {
   display: block;
 }
 
+/* --- Augmentation Showcase --- */
+.showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.2rem;
+  margin-top: 2rem;
+}
+.showcase-card {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(44,24,16,0.12);
+  border: 2px solid var(--parchment-dark);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.showcase-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(44,24,16,0.2);
+}
+.showcase-card img {
+  width: 100%;
+  display: block;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.showcase-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(transparent, rgba(44,24,16,0.85));
+  color: var(--parchment-light);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
 /* --- Feature Cards --- */
 .features-grid {
   display: grid;
@@ -773,6 +812,7 @@ code, .code-block {
   .getting-started-content { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .demo-grid { grid-template-columns: 1fr; }
+  .showcase-grid { grid-template-columns: repeat(2, 1fr); }
   .nav-links { display: none; }
   section { padding: 3rem 1.2rem; }
   .hero { padding: 7rem 1.2rem 3rem; }

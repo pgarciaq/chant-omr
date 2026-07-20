@@ -65,7 +65,16 @@ autoregressive GABC tokens come out. There are no intermediate stages
 &lt;p>The encoder is a ConvNeXt-V2 Tiny backbone (&lt;code>convnextv2_tiny.fcmae_ft_in22k_in1k&lt;/code>)
 from the &lt;code>timm&lt;/code> library, pretrained on ImageNet.&lt;/p>
 &lt;p>&lt;strong>Input:&lt;/strong> Score images at width 1050, variable height. Images are
-ImageNet-normalized (mean/std per channel).&lt;/p></description></item><item><title>Training Guide</title><link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid><description>&lt;p>This is a condensed version of the full
+ImageNet-normalized (mean/std per channel).&lt;/p></description></item><item><title>Data Augmentation</title><link>https://pgarciaq.github.io/chant-omr/docs/augmentation/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/augmentation/</guid><description>&lt;p>ChantOMR is trained on clean, computer-rendered score images (Gregorio +
+LuaLaTeX). Real manuscripts look very different: aged parchment, faded ink,
+foxing spots, uneven lighting, perspective distortion from photographing a
+bound book. Domain augmentation bridges this gap by transforming clean renders
+on-the-fly during training so the model learns to handle real-world conditions.&lt;/p>
+&lt;h2 id="how-it-works">How It Works&lt;/h2>
+&lt;p>Each training image passes through 13 independent transforms, each with its
+own probability. On average, ~5-6 transforms fire per image. The transforms
+are applied using OpenCV and NumPy, with a seeded random generator for
+reproducibility.&lt;/p></description></item><item><title>Training Guide</title><link>https://pgarciaq.github.io/chant-omr/docs/training-guide/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://pgarciaq.github.io/chant-omr/docs/training-guide/</guid><description>&lt;p>This is a condensed version of the full
 &lt;a href="https://github.com/pgarciaq/chant-omr/blob/master/TRAINING-PLAN.md">TRAINING-PLAN.md&lt;/a>.&lt;/p>
 &lt;h2 id="recommended-cloud-gpu-quickpod">Recommended: Cloud GPU (QuickPod)&lt;/h2>
 &lt;p>The cheapest path. The model is ~59M params and the dataset is &lt;del>20k images.
