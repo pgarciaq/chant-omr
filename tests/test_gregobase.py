@@ -731,3 +731,179 @@ class TestRebuildManifest:
         entry = manifest.entries[0]
         assert entry.office_part == "Introitus"
         assert entry.incipit == "Respice Domine"
+
+
+# ---------------------------------------------------------------------------
+# NABC twin detection and prefetch (#26)
+# ---------------------------------------------------------------------------
+
+NABC_GABC = (FIXTURES / "nabc_sample.gabc").read_bytes()
+
+
+class TestScanNabcIds:
+    def test_detects_nabc_files(self, tmp_path: Path):
+        (tmp_path / "100.gabc").write_bytes(NABC_GABC)
+        (tmp_path / "200.gabc").write_bytes(VALID_GABC)
+        manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=100, elem=None, office_part="Alleluia", incipit="Alleluia",
+                filename="100.gabc", sha256=gb.sha256_bytes(NABC_GABC),
+                size_bytes=len(NABC_GABC), status="ok", source="live", error=None,
+            ),
+            gb.ManifestEntry(
+                id=200, elem=None, office_part="Introitus", incipit="Respice Domine",
+                filename="200.gabc", sha256=gb.sha256_bytes(VALID_GABC),
+                size_bytes=len(VALID_GABC), status="ok", source="live", error=None,
+            ),
+        ])
+        nabc_ids = gb.scan_nabc_ids(tmp_path, manifest)
+        assert nabc_ids == {100}
+
+    def test_ignores_failed_entries(self, tmp_path: Path):
+        (tmp_path / "100.gabc").write_bytes(NABC_GABC)
+        manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=100, elem=None, office_part="", incipit="",
+                filename="100.gabc", sha256=None,
+                size_bytes=None, status="failed", source="live", error="bad",
+            ),
+        ])
+        assert gb.scan_nabc_ids(tmp_path, manifest) == set()
+
+
+class TestFindPlainTwins:
+    def test_finds_matching_twin(self):
+        catalog = [
+            gb.CatalogEntry(100, "Alleluia", "Cognoverunt"),
+            gb.CatalogEntry(200, "Alleluia", "Cognoverunt"),
+            gb.CatalogEntry(300, "Introitus", "Other"),
+        ]
+        nabc_ids = {100}
+        twins = gb.find_plain_twins("Cognoverunt", "Alleluia", 100, catalog, nabc_ids)
+        assert [t.id for t in twins] == [200]
+
+    def test_excludes_own_id(self):
+        catalog = [gb.CatalogEntry(100, "Alleluia", "Cognoverunt")]
+        twins = gb.find_plain_twins("Cognoverunt", "Alleluia", 100, catalog, {100})
+        assert twins == []
+
+    def test_excludes_other_nabc_ids(self):
+        catalog = [
+            gb.CatalogEntry(100, "Alleluia", "Cognoverunt"),
+            gb.CatalogEntry(200, "Alleluia", "Cognoverunt"),
+        ]
+        nabc_ids = {100, 200}
+        twins = gb.find_plain_twins("Cognoverunt", "Alleluia", 100, catalog, nabc_ids)
+        assert twins == []
+
+    def test_case_insensitive(self):
+        catalog = [
+            gb.CatalogEntry(100, "alleluia", "COGNOVERUNT"),
+            gb.CatalogEntry(200, "Alleluia", "cognoverunt"),
+        ]
+        nabc_ids = {100}
+        twins = gb.find_plain_twins("Cognoverunt", "Alleluia", 100, catalog, nabc_ids)
+        assert [t.id for t in twins] == [200]
+
+    def test_empty_incipit_returns_no_twins(self):
+        catalog = [gb.CatalogEntry(100, "", ""), gb.CatalogEntry(200, "", "")]
+        twins = gb.find_plain_twins("", "", 100, catalog, {100})
+        assert twins == []
+
+    def test_no_matching_twin(self):
+        catalog = [
+            gb.CatalogEntry(100, "Alleluia", "Nos qui vivimus"),
+            gb.CatalogEntry(200, "Introitus", "Other"),
+        ]
+        nabc_ids = {100}
+        twins = gb.find_plain_twins("Nos qui vivimus", "Alleluia", 100, catalog, nabc_ids)
+        assert twins == []
+
+
+class TestPrefetchPlainTwins:
+    def _session_with_responses(self, responses: list[MagicMock]) -> MagicMock:
+        session = MagicMock(spec=requests.Session)
+        session.headers = {}
+        session.get = MagicMock(side_effect=responses)
+        return session
+
+    def test_prefetch_downloads_twin(self, tmp_path: Path):
+        (tmp_path / "100.gabc").write_bytes(NABC_GABC)
+        manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=100, elem=None, office_part="Alleluia", incipit="Cognoverunt",
+                filename="100.gabc", sha256=gb.sha256_bytes(NABC_GABC),
+                size_bytes=len(NABC_GABC), status="ok", source="live", error=None,
+            ),
+        ])
+        manifest.save(tmp_path / gb.MANIFEST_FILENAME)
+        catalog = [
+            gb.CatalogEntry(100, "Alleluia", "Cognoverunt"),
+            gb.CatalogEntry(200, "Alleluia", "Cognoverunt"),
+        ]
+        session = self._session_with_responses([
+            _mock_response(content=VALID_GABC),
+            _mock_response(content=VALID_GABC),
+        ])
+        limiter = gb.RateLimiter(0)
+        nabc_ids = {100}
+
+        stats = gb.prefetch_plain_twins(
+            session, tmp_path, manifest, catalog, limiter, nabc_ids,
+        )
+        assert stats.twins_found == 1
+        assert stats.downloaded == 1
+        assert stats.already_present == 0
+        assert stats.no_twin == 0
+        assert (tmp_path / "200.gabc").exists()
+
+    def test_prefetch_skips_already_present(self, tmp_path: Path):
+        (tmp_path / "100.gabc").write_bytes(NABC_GABC)
+        (tmp_path / "200.gabc").write_bytes(VALID_GABC)
+        manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=100, elem=None, office_part="Alleluia", incipit="Cognoverunt",
+                filename="100.gabc", sha256=gb.sha256_bytes(NABC_GABC),
+                size_bytes=len(NABC_GABC), status="ok", source="live", error=None,
+            ),
+            gb.ManifestEntry(
+                id=200, elem=None, office_part="Alleluia", incipit="Cognoverunt",
+                filename="200.gabc", sha256=gb.sha256_bytes(VALID_GABC),
+                size_bytes=len(VALID_GABC), status="ok", source="live", error=None,
+            ),
+        ])
+        manifest.save(tmp_path / gb.MANIFEST_FILENAME)
+        catalog = [
+            gb.CatalogEntry(100, "Alleluia", "Cognoverunt"),
+            gb.CatalogEntry(200, "Alleluia", "Cognoverunt"),
+        ]
+        session = MagicMock(spec=requests.Session)
+        limiter = gb.RateLimiter(0)
+
+        stats = gb.prefetch_plain_twins(
+            session, tmp_path, manifest, catalog, limiter, {100},
+        )
+        assert stats.twins_found == 1
+        assert stats.already_present == 1
+        assert stats.downloaded == 0
+
+    def test_prefetch_no_twin(self, tmp_path: Path):
+        (tmp_path / "100.gabc").write_bytes(NABC_GABC)
+        manifest = gb.Manifest(entries=[
+            gb.ManifestEntry(
+                id=100, elem=None, office_part="Alleluia",
+                incipit="Nos qui vivimus",
+                filename="100.gabc", sha256=gb.sha256_bytes(NABC_GABC),
+                size_bytes=len(NABC_GABC), status="ok", source="live", error=None,
+            ),
+        ])
+        manifest.save(tmp_path / gb.MANIFEST_FILENAME)
+        catalog = [gb.CatalogEntry(100, "Alleluia", "Nos qui vivimus")]
+        session = MagicMock(spec=requests.Session)
+        limiter = gb.RateLimiter(0)
+
+        stats = gb.prefetch_plain_twins(
+            session, tmp_path, manifest, catalog, limiter, {100},
+        )
+        assert stats.no_twin == 1
+        assert stats.downloaded == 0

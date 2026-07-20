@@ -31,7 +31,7 @@ import requests
 from requests import Response
 from tqdm import tqdm
 
-from chant_omr.data.gabc_parser import gabc_reject_reason
+from chant_omr.data.gabc_parser import gabc_reject_reason, is_nabc_notation
 
 logger = logging.getLogger(__name__)
 
@@ -881,3 +881,115 @@ def rebuild_manifest(
         unmatched_path.unlink()
 
     return manifest, stats
+
+
+# ---------------------------------------------------------------------------
+# NABC twin detection and prefetch (#26)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PrefetchStats:
+    """Summary returned by :func:`prefetch_plain_twins`."""
+
+    nabc_count: int = 0
+    twins_found: int = 0
+    downloaded: int = 0
+    already_present: int = 0
+    no_twin: int = 0
+
+
+def scan_nabc_ids(gabc_dir: Path, manifest: Manifest) -> set[int]:
+    """Return IDs of ``status == 'ok'`` manifest entries whose files are NABC."""
+    nabc_ids: set[int] = set()
+    for entry in manifest.entries:
+        if entry.status != "ok" or not entry.filename:
+            continue
+        fpath = gabc_dir / entry.filename
+        if not fpath.exists():
+            continue
+        try:
+            text = fpath.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if is_nabc_notation(text):
+            nabc_ids.add(entry.id)
+    return nabc_ids
+
+
+def find_plain_twins(
+    nabc_incipit: str,
+    nabc_office_part: str,
+    nabc_id: int,
+    catalog: list[CatalogEntry],
+    nabc_ids: set[int],
+) -> list[CatalogEntry]:
+    """Return catalog entries that are plain GABC twins of an NABC entry.
+
+    Match rule: exact case-insensitive stripped incipit + office_part,
+    excluding the NABC entry's own ID and any other known NABC IDs.
+    """
+    inc = nabc_incipit.strip().lower()
+    opart = nabc_office_part.strip().lower()
+    if not inc:
+        return []
+    twins: list[CatalogEntry] = []
+    for entry in catalog:
+        if entry.id == nabc_id or entry.id in nabc_ids:
+            continue
+        if entry.incipit.strip().lower() == inc and entry.office_part.strip().lower() == opart:
+            twins.append(entry)
+    return twins
+
+
+def prefetch_plain_twins(
+    session: requests.Session,
+    gabc_dir: Path,
+    manifest: Manifest,
+    catalog: list[CatalogEntry],
+    rate_limiter: RateLimiter,
+    nabc_ids: set[int],
+) -> PrefetchStats:
+    """For each NABC entry, download a plain twin if not already present."""
+    manifest_path = gabc_dir / MANIFEST_FILENAME
+    downloaded_ids = manifest.ids_with_success()
+    stats = PrefetchStats(nabc_count=len(nabc_ids))
+
+    nabc_entries = {
+        e.id: e for e in manifest.entries
+        if e.id in nabc_ids and e.status == "ok"
+    }
+
+    for nabc_id in sorted(nabc_ids):
+        entry = nabc_entries.get(nabc_id)
+        if entry is None:
+            continue
+        twins = find_plain_twins(
+            entry.incipit, entry.office_part, nabc_id, catalog, nabc_ids,
+        )
+        if not twins:
+            stats.no_twin += 1
+            continue
+
+        stats.twins_found += 1
+        if any(t.id in downloaded_ids for t in twins):
+            stats.already_present += 1
+            continue
+
+        twin = twins[0]
+        saved, new_entries, _skipped, new_count = download_variants_for_id(
+            session, twin, gabc_dir, manifest, rate_limiter=rate_limiter,
+        )
+        manifest.replace_entries_for_id(twin.id, new_entries)
+        manifest.save(manifest_path)
+        if new_count > 0:
+            stats.downloaded += 1
+            downloaded_ids.add(twin.id)
+            logger.info(
+                "Prefetched plain twin id=%d for NABC id=%d (%s)",
+                twin.id, nabc_id, entry.incipit,
+            )
+        else:
+            stats.no_twin += 1
+
+    return stats

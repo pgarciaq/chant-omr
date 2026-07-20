@@ -309,7 +309,13 @@ def export(checkpoint, fmt, config, output_dir, verify):
     is_flag=True,
     help="Force the progress bar even when stderr is not a TTY",
 )
-def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress, progress):
+@click.option(
+    "--prefetch-plain-twins",
+    is_flag=True,
+    help="After download, auto-fetch plain GABC for NABC entries that have catalog twins",
+)
+def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress, progress,
+             prefetch_plain_twins):
     """Download GABC files from GregoBase."""
     import sys
     from pathlib import Path
@@ -333,8 +339,9 @@ def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress,
             err=True,
         )
 
+    out = Path(output_dir)
     stats = download_corpus(
-        Path(output_dir),
+        out,
         limit=limit,
         sync=sync,
         sync_days=days,
@@ -347,6 +354,33 @@ def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress,
         f"Downloaded: {stats.downloaded_files} | Skipped: {stats.skipped_files} | "
         f"Failed IDs: {stats.failed_ids}"
     )
+
+    if prefetch_plain_twins:
+        from chant_omr.data.gregobase import (
+            MANIFEST_FILENAME,
+            Manifest,
+            RateLimiter,
+            fetch_catalog,
+            make_session,
+            prefetch_plain_twins as _prefetch,
+            scan_nabc_ids,
+        )
+
+        manifest = Manifest.load(out / MANIFEST_FILENAME)
+        click.echo("Scanning for NABC entries...", err=True)
+        nabc_ids = scan_nabc_ids(out, manifest)
+        click.echo(f"Found {len(nabc_ids)} NABC entries", err=True)
+        if nabc_ids:
+            session = make_session()
+            catalog, _ = fetch_catalog(session)
+            limiter = RateLimiter(rate_limit)
+            pf_stats = _prefetch(session, out, manifest, catalog, limiter, nabc_ids)
+            click.echo(
+                f"Prefetch: {pf_stats.twins_found} twins found | "
+                f"{pf_stats.downloaded} downloaded | "
+                f"{pf_stats.already_present} already present | "
+                f"{pf_stats.no_twin} no twin"
+            )
 
 
 @main.command()
