@@ -1,4 +1,4 @@
-"""Tests for ONNX/OpenVINO encoder/decoder export, safetensors, and OV decode (#13b, #41, #50)."""
+"""Tests for ONNX/OpenVINO export, safetensors, and OV decode (#13b, #36, #41, #50)."""
 
 from __future__ import annotations
 
@@ -10,21 +10,24 @@ import torch
 import yaml
 
 from chant_omr.inference.beam_search import (
-    DecodeConfig,
     greedy_decode_generic,
     pytorch_logits_func,
 )
 from chant_omr.inference.export import (
     ENCODER_OUTPUT_STRIDE,
+    CachedDecoderInitForExport,
+    CachedDecoderStepForExport,
     DecoderStepForExport,
     EncoderForExport,
-    OnnxDecoderInitForExport,
-    OnnxDecoderStepForExport,
+    export_decoder_init_openvino,
     export_decoder_openvino,
+    export_decoder_step_openvino,
     export_onnx,
     export_openvino,
     export_safetensors,
+    verify_decoder_init_openvino_parity,
     verify_decoder_openvino_parity,
+    verify_decoder_step_openvino_parity,
     verify_onnx_decoder_init_parity,
     verify_onnx_decoder_step_parity,
     verify_onnx_encoder_parity,
@@ -109,12 +112,12 @@ class TestEncoderForExport:
 # ---------------------------------------------------------------------------
 
 
-class TestOnnxDecoderInitForExport:
+class TestCachedDecoderInitForExport:
     def test_output_shapes(self):
         cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
         model = build_model(cfg, encoder_pretrained=False)
         model.eval()
-        init = OnnxDecoderInitForExport(model)
+        init = CachedDecoderInitForExport(model)
         init.eval()
         dummy_ids = torch.ones(1, 1, dtype=torch.long)
         dummy_memory = torch.randn(1, 64, cfg.d_model)
@@ -131,7 +134,7 @@ class TestOnnxDecoderInitForExport:
         cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
         model = build_model(cfg, encoder_pretrained=False)
         model.eval()
-        init = OnnxDecoderInitForExport(model)
+        init = CachedDecoderInitForExport(model)
         init.eval()
         dummy_ids = torch.ones(1, 1, dtype=torch.long)
         dummy_memory = torch.randn(1, 64, cfg.d_model)
@@ -144,12 +147,12 @@ class TestOnnxDecoderInitForExport:
         assert torch.allclose(init_logits[0, 0], full_logits[0, -1], atol=1e-6)
 
 
-class TestOnnxDecoderStepForExport:
+class TestCachedDecoderStepForExport:
     def test_output_shapes(self):
         cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
         model = build_model(cfg, encoder_pretrained=False)
         model.eval()
-        step = OnnxDecoderStepForExport(model)
+        step = CachedDecoderStepForExport(model)
         step.eval()
         head_dim = cfg.d_model // cfg.n_heads
         dummy_ids = torch.ones(1, 1, dtype=torch.long)
@@ -173,8 +176,8 @@ class TestOnnxDecoderStepForExport:
         cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
         model = build_model(cfg, encoder_pretrained=False)
         model.eval()
-        init = OnnxDecoderInitForExport(model)
-        step = OnnxDecoderStepForExport(model)
+        init = CachedDecoderInitForExport(model)
+        step = CachedDecoderStepForExport(model)
         init.eval()
         step.eval()
 
@@ -378,64 +381,154 @@ class TestExportDecoderOpenVINO:
         assert diff < 5e-3
 
 
-class TestOVDecodeIntegration:
-    """End-to-end: encoder IR + decoder IR → token IDs (no PyTorch model)."""
+class TestExportDecoderInitOpenVINO:
+    """Tests for KV-cached decoder_init OpenVINO export (#36)."""
 
-    def test_ov_greedy_decode_produces_tokens(self, config_and_ckpt, tokenizer, tmp_path):
+    def test_produces_ir_files(self, config_and_ckpt, tmp_path):
         cfg_path, ckpt_path = config_and_ckpt
-        out_dir = tmp_path / "ov_e2e"
-        export_openvino(
-            ckpt_path, out_dir, config_path=cfg_path,
-            input_height=128, input_width=1050,
-        )
-        export_decoder_openvino(
+        out_dir = tmp_path / "dec_init_export"
+        xml_path = export_decoder_init_openvino(
             ckpt_path, out_dir, config_path=cfg_path,
         )
+        assert xml_path.exists()
+        assert xml_path.name == "decoder_init.xml"
+        assert xml_path.with_suffix(".bin").exists()
+
+    def test_decoder_init_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "dec_init_parity"
+        xml_path = export_decoder_init_openvino(
+            ckpt_path, out_dir, config_path=cfg_path,
+        )
+        diff = verify_decoder_init_openvino_parity(
+            ckpt_path, xml_path, config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+
+class TestExportDecoderStepOpenVINO:
+    """Tests for KV-cached decoder_step OpenVINO export (#36)."""
+
+    def test_produces_ir_files(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "dec_step_export"
+        xml_path = export_decoder_step_openvino(
+            ckpt_path, out_dir, config_path=cfg_path,
+        )
+        assert xml_path.exists()
+        assert xml_path.name == "decoder_step.xml"
+        assert xml_path.with_suffix(".bin").exists()
+
+    def test_decoder_step_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "dec_step_parity"
+        xml_path = export_decoder_step_openvino(
+            ckpt_path, out_dir, config_path=cfg_path,
+        )
+        diff = verify_decoder_step_openvino_parity(
+            ckpt_path, xml_path, config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+
+def _export_all_ov(ckpt_path, cfg_path, out_dir):
+    """Helper: export all 4 OpenVINO IRs + tokenizer into out_dir."""
+    export_openvino(
+        ckpt_path, out_dir, config_path=cfg_path,
+        input_height=128, input_width=1050,
+    )
+    export_decoder_openvino(ckpt_path, out_dir, config_path=cfg_path)
+    export_decoder_init_openvino(ckpt_path, out_dir, config_path=cfg_path)
+    export_decoder_step_openvino(ckpt_path, out_dir, config_path=cfg_path)
+
+
+class TestOVDecodeIntegration:
+    """End-to-end: all 4 OpenVINO IRs → token IDs (no PyTorch model)."""
+
+    def test_ov_cached_greedy_produces_tokens(self, config_and_ckpt, tokenizer, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "ov_greedy"
+        _export_all_ov(ckpt_path, cfg_path, out_dir)
 
         import numpy as np
 
-        from chant_omr.inference.ov_decode import load_openvino_models, ov_decode_token_ids
-
-        enc_compiled, dec_compiled, manifest = load_openvino_models(out_dir)
-        dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
-        token_ids = ov_decode_token_ids(
-            enc_compiled,
-            dec_compiled,
-            dummy_pixels,
-            bos_token_id=tokenizer.bos_id,
-            eos_token_id=tokenizer.eos_id,
-            config=DecodeConfig(beam_width=1, max_length=8, repetition_penalty=1.0),
+        from chant_omr.inference.ov_decode import (
+            load_openvino_models,
+            ov_encoder_infer,
+            ov_logits_func_cached,
         )
-        assert token_ids[0] == tokenizer.bos_id
+
+        enc, _dec, init, step, manifest, tok = load_openvino_models(out_dir)
+        dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
+        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory_t = torch.from_numpy(memory)
+        mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
+
+        logits_fn = ov_logits_func_cached(init, step, mask_np)
+        token_ids = greedy_decode_generic(
+            logits_fn, memory_t,
+            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id, max_length=8,
+        )
+        assert token_ids[0] == tok.bos_id
         assert len(token_ids) >= 2
 
-    def test_ov_beam_decode_produces_tokens(self, config_and_ckpt, tokenizer, tmp_path):
+    def test_ov_noncached_beam_produces_tokens(self, config_and_ckpt, tokenizer, tmp_path):
         cfg_path, ckpt_path = config_and_ckpt
         out_dir = tmp_path / "ov_beam"
-        export_openvino(
-            ckpt_path, out_dir, config_path=cfg_path,
-            input_height=128, input_width=1050,
-        )
-        export_decoder_openvino(
-            ckpt_path, out_dir, config_path=cfg_path,
-        )
+        _export_all_ov(ckpt_path, cfg_path, out_dir)
 
         import numpy as np
 
-        from chant_omr.inference.ov_decode import load_openvino_models, ov_decode_token_ids
-
-        enc_compiled, dec_compiled, _ = load_openvino_models(out_dir)
-        dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
-        token_ids = ov_decode_token_ids(
-            enc_compiled,
-            dec_compiled,
-            dummy_pixels,
-            bos_token_id=tokenizer.bos_id,
-            eos_token_id=tokenizer.eos_id,
-            config=DecodeConfig(beam_width=3, max_length=8, repetition_penalty=1.0),
+        from chant_omr.inference.beam_search import beam_search_decode_generic
+        from chant_omr.inference.ov_decode import (
+            load_openvino_models,
+            ov_decoder_logits_func,
+            ov_encoder_infer,
         )
-        assert token_ids[0] == tokenizer.bos_id
+
+        enc, dec, _init, _step, manifest, tok = load_openvino_models(out_dir)
+        dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
+        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory_t = torch.from_numpy(memory)
+        mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
+
+        logits_fn = ov_decoder_logits_func(dec, mask_np)
+        token_ids = beam_search_decode_generic(
+            logits_fn, memory_t,
+            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id,
+            max_length=8, beam_width=3,
+        )
+        assert token_ids[0] == tok.bos_id
         assert len(token_ids) >= 2
+
+    def test_ov_cached_greedy_decoded_is_string(self, config_and_ckpt, tokenizer, tmp_path):
+        """Greedy cached path: token IDs decode to a string."""
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "ov_decode_str"
+        _export_all_ov(ckpt_path, cfg_path, out_dir)
+
+        import numpy as np
+
+        from chant_omr.inference.ov_decode import (
+            load_openvino_models,
+            ov_encoder_infer,
+            ov_logits_func_cached,
+        )
+
+        enc, _dec, init, step, _manifest, tok = load_openvino_models(out_dir)
+        dummy_pixels = np.random.randn(1, 3, 128, 1050).astype(np.float32)
+        memory = ov_encoder_infer(enc, dummy_pixels)
+        memory_t = torch.from_numpy(memory)
+        mask_np = np.ones((1, memory.shape[1]), dtype=np.float32)
+
+        logits_fn = ov_logits_func_cached(init, step, mask_np)
+        token_ids = greedy_decode_generic(
+            logits_fn, memory_t,
+            bos_token_id=tok.bos_id, eos_token_id=tok.eos_id,
+            max_length=32,
+        )
+        decoded = tok.decode(token_ids, skip_special_tokens=True)
+        assert isinstance(decoded, str)
 
 
 # ---------------------------------------------------------------------------

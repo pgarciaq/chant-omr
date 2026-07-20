@@ -58,10 +58,10 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option(
     "--device",
-    type=click.Choice(["auto", "cuda", "xpu", "cpu", "onnx"]),
+    type=click.Choice(["auto", "cuda", "xpu", "cpu", "onnx", "openvino"]),
     default="auto",
     show_default=True,
-    help="Inference device: auto/cuda/xpu/cpu use PyTorch; onnx uses ONNX Runtime",
+    help="Inference device: auto/cuda/xpu/cpu use PyTorch; onnx/openvino use exported models",
 )
 @click.option("--xpu-index", type=int, default=0, show_default=True)
 @click.option(
@@ -69,7 +69,7 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
     type=click.Path(),
     default="models/",
     show_default=True,
-    help="ONNX model directory (only used with --device onnx)",
+    help="Exported model directory (used with --device onnx or openvino)",
 )
 @click.option("--beam-width", type=int, default=None, help="Override config inference.beam_width")
 @click.option("--max-length", type=int, default=None, help="Override config inference.max_length")
@@ -156,6 +156,19 @@ def predict(
             grammar_penalty=gp,
             name=name,
         )
+    elif device == "openvino":
+        from chant_omr.inference.ov_decode import ov_predict_gabc
+
+        gabc = ov_predict_gabc(
+            Path(image_path),
+            Path(model_dir),
+            beam_width=bw,
+            max_length=ml,
+            repetition_penalty=rp,
+            grammar_constrained=gc,
+            grammar_penalty=gp,
+            name=name,
+        )
     else:
         from chant_omr.inference.predict import predict_gabc
 
@@ -229,16 +242,24 @@ def export(checkpoint, fmt, config, output_dir, verify):
             click.echo(f"Decoder step parity passed (max abs diff: {step_diff:.6e})")
     elif fmt == "openvino":
         from chant_omr.inference.export import (
+            export_decoder_init_openvino,
             export_decoder_openvino,
+            export_decoder_step_openvino,
             export_openvino,
+            verify_decoder_init_openvino_parity,
             verify_decoder_openvino_parity,
+            verify_decoder_step_openvino_parity,
             verify_openvino_parity,
         )
 
         enc_xml = export_openvino(ckpt, out, config_path=cfg)
         click.echo(f"Encoder IR: {enc_xml}")
         dec_xml = export_decoder_openvino(ckpt, out, config_path=cfg)
-        click.echo(f"Decoder IR: {dec_xml}")
+        click.echo(f"Decoder IR (non-cached): {dec_xml}")
+        init_xml = export_decoder_init_openvino(ckpt, out, config_path=cfg)
+        click.echo(f"Decoder init IR (cached): {init_xml}")
+        step_xml = export_decoder_step_openvino(ckpt, out, config_path=cfg)
+        click.echo(f"Decoder step IR (cached): {step_xml}")
         click.echo(f"OpenVINO IR written to {out}/")
         if verify:
             enc_diff = verify_openvino_parity(ckpt, enc_xml, config_path=cfg)
@@ -247,6 +268,14 @@ def export(checkpoint, fmt, config, output_dir, verify):
                 ckpt, dec_xml, config_path=cfg,
             )
             click.echo(f"Decoder parity passed (max abs diff: {dec_diff:.6e})")
+            init_diff = verify_decoder_init_openvino_parity(
+                ckpt, init_xml, config_path=cfg,
+            )
+            click.echo(f"Decoder init parity passed (max abs diff: {init_diff:.6e})")
+            step_diff = verify_decoder_step_openvino_parity(
+                ckpt, step_xml, config_path=cfg,
+            )
+            click.echo(f"Decoder step parity passed (max abs diff: {step_diff:.6e})")
     elif fmt == "safetensors":
         from chant_omr.inference.export import export_safetensors
 

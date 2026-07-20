@@ -95,8 +95,8 @@ class DecoderStepForExport(nn.Module):
         return logits[:, -1:, :]
 
 
-class OnnxDecoderInitForExport(nn.Module):
-    """First decoder step for ONNX export: computes cross-attention K/V.
+class CachedDecoderInitForExport(nn.Module):
+    """First decoder step with KV cache: computes cross-attention K/V.
 
     Inputs:
         input_ids        ``(1, 1)``       int64   (BOS token)
@@ -135,8 +135,8 @@ class OnnxDecoderInitForExport(nn.Module):
         return logits[:, -1:, :], self_k, self_v, cross_k, cross_v
 
 
-class OnnxDecoderStepForExport(nn.Module):
-    """Subsequent decoder steps for ONNX export: reuses cached cross-attn K/V.
+class CachedDecoderStepForExport(nn.Module):
+    """Subsequent decoder steps with KV cache: reuses cached cross-attn K/V.
 
     Inputs:
         input_ids        ``(1, 1)``                   int64
@@ -213,8 +213,8 @@ def export_openvino(
 ) -> Path:
     """Export the encoder path to OpenVINO IR format.
 
-    Produces ``encoder.xml``, ``encoder.bin``, and ``manifest.json`` inside
-    *output_dir*.  The exported graph covers:
+    Produces ``encoder.xml``, ``encoder.bin``, ``tokenizer.json``, and
+    ``manifest.json`` inside *output_dir*.  The exported graph covers:
 
         pixel_values (1, 3, H, W) → encoder_memory (1, N, d_model)
 
@@ -234,6 +234,8 @@ def export_openvino(
     Returns:
         Path to the exported ``.xml`` model file.
     """
+    import shutil
+
     import openvino as ov
 
     output_dir = Path(output_dir)
@@ -268,13 +270,18 @@ def export_openvino(
     xml_path = output_dir / "encoder.xml"
     ov.save_model(ov_model, str(xml_path))
 
-    num_patches = (input_height // ENCODER_OUTPUT_STRIDE) * (
-        input_width // ENCODER_OUTPUT_STRIDE
-    )
     cfg = load_config(Path(config_path or "configs/default.yaml"))
     model_cfg = cfg.get("model", {})
     chant_config = ChantOMRConfig.from_mapping(model_cfg)
 
+    tok_dir = Path(cfg.get("data", {}).get("tokenizer_dir", "data/tokenizer"))
+    tok_src = tok_dir / "tokenizer.json"
+    if tok_src.exists():
+        shutil.copy2(str(tok_src), str(output_dir / "tokenizer.json"))
+
+    num_patches = (input_height // ENCODER_OUTPUT_STRIDE) * (
+        input_width // ENCODER_OUTPUT_STRIDE
+    )
     manifest = ExportManifest(
         format="openvino",
         checkpoint_path=str(Path(checkpoint_path).resolve()),
@@ -537,7 +544,7 @@ def export_onnx(
         )
 
     # --- Decoder init (first step) ---
-    init_module = OnnxDecoderInitForExport(model)
+    init_module = CachedDecoderInitForExport(model)
     init_module.eval()
 
     dummy_ids = torch.ones(1, 1, dtype=torch.long)
@@ -563,7 +570,7 @@ def export_onnx(
         )
 
     # --- Decoder step (subsequent steps) ---
-    step_module = OnnxDecoderStepForExport(model)
+    step_module = CachedDecoderStepForExport(model)
     step_module.eval()
 
     dummy_self_k = torch.randn(n_layers, 1, n_heads, 1, head_dim)
@@ -681,7 +688,7 @@ def verify_onnx_decoder_init_parity(
         checkpoint_path, config_path=config_path, device="cpu",
     )
 
-    init_module = OnnxDecoderInitForExport(model)
+    init_module = CachedDecoderInitForExport(model)
     init_module.eval()
 
     dummy_ids = torch.ones(1, 1, dtype=torch.long)
@@ -730,7 +737,7 @@ def verify_onnx_decoder_step_parity(
         checkpoint_path, config_path=config_path, device="cpu",
     )
 
-    step_module = OnnxDecoderStepForExport(model)
+    step_module = CachedDecoderStepForExport(model)
     step_module.eval()
 
     n_layers = model.config.n_layers
@@ -823,5 +830,289 @@ def verify_decoder_openvino_parity(
     if max_diff > atol:
         raise AssertionError(
             f"Decoder OpenVINO parity failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+# ---------------------------------------------------------------------------
+# KV-cached decoder OpenVINO export (#36)
+# ---------------------------------------------------------------------------
+
+
+def export_decoder_init_openvino(
+    checkpoint_path: Path,
+    output_dir: Path,
+    *,
+    config_path: Path | None = None,
+    trace_num_patches: int = 128,
+) -> Path:
+    """Export the cached decoder init step to OpenVINO IR.
+
+    Produces ``decoder_init.xml`` and ``decoder_init.bin`` inside *output_dir*.
+    This graph computes cross-attention K/V from encoder memory on the first
+    decoding step:
+
+        input_ids (1,1) + encoder_memory (1,N,D) + encoder_mask (1,N)
+        → logits (1,1,V) + self_k/v (L,1,H,1,hd) + cross_k/v (L,1,H,N,hd)
+
+    Args:
+        checkpoint_path: Lightning ``.ckpt`` checkpoint.
+        output_dir: Destination for ``.xml`` / ``.bin``.
+        config_path: YAML config (defaults to ``configs/default.yaml``).
+        trace_num_patches: Encoder patch count for tracing dummy inputs.
+
+    Returns:
+        Path to the exported ``.xml`` model file.
+    """
+    import openvino as ov
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    cfg = load_config(Path(config_path or "configs/default.yaml"))
+    model_cfg = cfg.get("model", {})
+    chant_config = ChantOMRConfig.from_mapping(model_cfg)
+
+    init_module = CachedDecoderInitForExport(model)
+    init_module.eval()
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_memory = torch.randn(1, trace_num_patches, chant_config.d_model)
+    dummy_mask = torch.ones(1, trace_num_patches)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_path = Path(tmp) / "decoder_init.onnx"
+        with torch.inference_mode():
+            torch.onnx.export(
+                init_module,
+                (dummy_ids, dummy_memory, dummy_mask),
+                str(onnx_path),
+                input_names=["input_ids", "encoder_memory", "encoder_mask"],
+                output_names=[
+                    "logits", "self_k", "self_v", "cross_k", "cross_v",
+                ],
+                opset_version=18,
+                dynamo=False,
+                dynamic_axes={
+                    "encoder_memory": {1: "num_patches"},
+                    "encoder_mask": {1: "num_patches"},
+                    "cross_k": {3: "num_patches"},
+                    "cross_v": {3: "num_patches"},
+                },
+            )
+
+        core = ov.Core()
+        ov_model = core.read_model(str(onnx_path))
+
+    xml_path = output_dir / "decoder_init.xml"
+    ov.save_model(ov_model, str(xml_path))
+    return xml_path
+
+
+def export_decoder_step_openvino(
+    checkpoint_path: Path,
+    output_dir: Path,
+    *,
+    config_path: Path | None = None,
+    trace_num_patches: int = 128,
+) -> Path:
+    """Export the cached decoder step to OpenVINO IR.
+
+    Produces ``decoder_step.xml`` and ``decoder_step.bin`` inside *output_dir*.
+    This graph processes one new token using KV cache from previous steps:
+
+        input_ids (1,1) + past_self_k/v (L,1,H,S,hd) + past_cross_k/v
+        + encoder_mask (1,N)
+        → logits (1,1,V) + updated self_k/v (L,1,H,S+1,hd)
+        + pass-through cross_k/v
+
+    Args:
+        checkpoint_path: Lightning ``.ckpt`` checkpoint.
+        output_dir: Destination for ``.xml`` / ``.bin``.
+        config_path: YAML config (defaults to ``configs/default.yaml``).
+        trace_num_patches: Encoder patch count for tracing dummy inputs.
+
+    Returns:
+        Path to the exported ``.xml`` model file.
+    """
+    import openvino as ov
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    cfg = load_config(Path(config_path or "configs/default.yaml"))
+    model_cfg = cfg.get("model", {})
+    chant_config = ChantOMRConfig.from_mapping(model_cfg)
+
+    n_layers = chant_config.n_layers
+    n_heads = chant_config.n_heads
+    head_dim = chant_config.d_model // chant_config.n_heads
+
+    step_module = CachedDecoderStepForExport(model)
+    step_module.eval()
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_self_k = torch.randn(n_layers, 1, n_heads, 1, head_dim)
+    dummy_self_v = torch.randn(n_layers, 1, n_heads, 1, head_dim)
+    dummy_cross_k = torch.randn(n_layers, 1, n_heads, trace_num_patches, head_dim)
+    dummy_cross_v = torch.randn(n_layers, 1, n_heads, trace_num_patches, head_dim)
+    dummy_mask = torch.ones(1, trace_num_patches)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_path = Path(tmp) / "decoder_step.onnx"
+        with torch.inference_mode():
+            torch.onnx.export(
+                step_module,
+                (dummy_ids, dummy_self_k, dummy_self_v,
+                 dummy_cross_k, dummy_cross_v, dummy_mask),
+                str(onnx_path),
+                input_names=[
+                    "input_ids",
+                    "past_self_k", "past_self_v",
+                    "past_cross_k", "past_cross_v",
+                    "encoder_mask",
+                ],
+                output_names=[
+                    "logits", "self_k", "self_v", "cross_k", "cross_v",
+                ],
+                opset_version=18,
+                dynamo=False,
+                dynamic_axes={
+                    "past_self_k": {3: "past_seq_len"},
+                    "past_self_v": {3: "past_seq_len"},
+                    "past_cross_k": {3: "num_patches"},
+                    "past_cross_v": {3: "num_patches"},
+                    "encoder_mask": {1: "num_patches"},
+                    "self_k": {3: "seq_len"},
+                    "self_v": {3: "seq_len"},
+                    "cross_k": {3: "num_patches"},
+                    "cross_v": {3: "num_patches"},
+                },
+            )
+
+        core = ov.Core()
+        ov_model = core.read_model(str(onnx_path))
+
+    xml_path = output_dir / "decoder_step.xml"
+    ov.save_model(ov_model, str(xml_path))
+    return xml_path
+
+
+def verify_decoder_init_openvino_parity(
+    checkpoint_path: Path,
+    xml_path: Path,
+    *,
+    config_path: Path | None = None,
+    num_patches: int = 128,
+    atol: float = 5e-3,
+) -> float:
+    """Compare PyTorch cached decoder init with OpenVINO IR."""
+    import numpy as np
+    import openvino as ov
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    init_module = CachedDecoderInitForExport(model)
+    init_module.eval()
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_memory = torch.randn(1, num_patches, model.config.d_model)
+    dummy_mask = torch.ones(1, num_patches)
+
+    with torch.inference_mode():
+        pt_outputs = init_module(dummy_ids, dummy_memory, dummy_mask)
+
+    core = ov.Core()
+    compiled = core.compile_model(str(xml_path), "CPU")
+    ov_results = compiled({
+        "input_ids": dummy_ids.numpy(),
+        "encoder_memory": dummy_memory.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
+    })
+
+    max_diff = 0.0
+    names = ["logits", "self_k", "self_v", "cross_k", "cross_v"]
+    for i, name in enumerate(names):
+        pt_t = pt_outputs[i]
+        ov_t = torch.from_numpy(np.array(ov_results[i]))
+        diff = float((pt_t - ov_t).abs().max())
+        max_diff = max(max_diff, diff)
+
+    if max_diff > atol:
+        raise AssertionError(
+            f"Decoder init OV parity failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+def verify_decoder_step_openvino_parity(
+    checkpoint_path: Path,
+    xml_path: Path,
+    *,
+    config_path: Path | None = None,
+    num_patches: int = 128,
+    past_seq_len: int = 3,
+    atol: float = 5e-3,
+) -> float:
+    """Compare PyTorch cached decoder step with OpenVINO IR."""
+    import numpy as np
+    import openvino as ov
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    step_module = CachedDecoderStepForExport(model)
+    step_module.eval()
+
+    n_layers = model.config.n_layers
+    n_heads = model.config.n_heads
+    head_dim = model.config.d_model // model.config.n_heads
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_self_k = torch.randn(n_layers, 1, n_heads, past_seq_len, head_dim)
+    dummy_self_v = torch.randn(n_layers, 1, n_heads, past_seq_len, head_dim)
+    dummy_cross_k = torch.randn(n_layers, 1, n_heads, num_patches, head_dim)
+    dummy_cross_v = torch.randn(n_layers, 1, n_heads, num_patches, head_dim)
+    dummy_mask = torch.ones(1, num_patches)
+
+    with torch.inference_mode():
+        pt_outputs = step_module(
+            dummy_ids, dummy_self_k, dummy_self_v,
+            dummy_cross_k, dummy_cross_v, dummy_mask,
+        )
+
+    core = ov.Core()
+    compiled = core.compile_model(str(xml_path), "CPU")
+    ov_results = compiled({
+        "input_ids": dummy_ids.numpy(),
+        "past_self_k": dummy_self_k.numpy(),
+        "past_self_v": dummy_self_v.numpy(),
+        "past_cross_k": dummy_cross_k.numpy(),
+        "past_cross_v": dummy_cross_v.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
+    })
+
+    max_diff = 0.0
+    names = ["logits", "self_k", "self_v", "cross_k", "cross_v"]
+    for i, name in enumerate(names):
+        pt_t = pt_outputs[i]
+        ov_t = torch.from_numpy(np.array(ov_results[i]))
+        diff = float((pt_t - ov_t).abs().max())
+        max_diff = max(max_diff, diff)
+
+    if max_diff > atol:
+        raise AssertionError(
+            f"Decoder step OV parity failed: max abs diff {max_diff:.6f} > atol {atol}"
         )
     return max_diff
