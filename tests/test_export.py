@@ -1,4 +1,4 @@
-"""Tests for OpenVINO encoder/decoder export, safetensors, and OV decode (#13b, #41)."""
+"""Tests for ONNX/OpenVINO encoder/decoder export, safetensors, and OV decode (#13b, #41, #50)."""
 
 from __future__ import annotations
 
@@ -18,10 +18,16 @@ from chant_omr.inference.export import (
     ENCODER_OUTPUT_STRIDE,
     DecoderStepForExport,
     EncoderForExport,
+    OnnxDecoderInitForExport,
+    OnnxDecoderStepForExport,
     export_decoder_openvino,
+    export_onnx,
     export_openvino,
     export_safetensors,
     verify_decoder_openvino_parity,
+    verify_onnx_decoder_init_parity,
+    verify_onnx_decoder_step_parity,
+    verify_onnx_encoder_parity,
     verify_openvino_parity,
 )
 from chant_omr.model.chant_omr_model import ChantOMRConfig, build_model
@@ -96,6 +102,166 @@ class TestEncoderForExport:
             from_wrapper = enc(dummy)
             from_model = model.encode(dummy)
         assert torch.allclose(from_wrapper, from_model, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# ONNX wrapper modules (#50)
+# ---------------------------------------------------------------------------
+
+
+class TestOnnxDecoderInitForExport:
+    def test_output_shapes(self):
+        cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
+        model = build_model(cfg, encoder_pretrained=False)
+        model.eval()
+        init = OnnxDecoderInitForExport(model)
+        init.eval()
+        dummy_ids = torch.ones(1, 1, dtype=torch.long)
+        dummy_memory = torch.randn(1, 64, cfg.d_model)
+        dummy_mask = torch.ones(1, 64)
+        with torch.inference_mode():
+            logits, sk, sv, ck, cv = init(dummy_ids, dummy_memory, dummy_mask)
+        assert logits.shape == (1, 1, cfg.vocab_size)
+        assert sk.shape == (cfg.n_layers, 1, cfg.n_heads, 1, cfg.d_model // cfg.n_heads)
+        assert sv.shape == sk.shape
+        assert ck.shape == (cfg.n_layers, 1, cfg.n_heads, 64, cfg.d_model // cfg.n_heads)
+        assert cv.shape == ck.shape
+
+    def test_logits_match_decoder(self):
+        cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
+        model = build_model(cfg, encoder_pretrained=False)
+        model.eval()
+        init = OnnxDecoderInitForExport(model)
+        init.eval()
+        dummy_ids = torch.ones(1, 1, dtype=torch.long)
+        dummy_memory = torch.randn(1, 64, cfg.d_model)
+        dummy_mask = torch.ones(1, 64)
+        with torch.inference_mode():
+            init_logits, *_ = init(dummy_ids, dummy_memory, dummy_mask)
+            full_logits, _ = model.decoder(
+                dummy_ids, dummy_memory, encoder_attention_mask=dummy_mask,
+            )
+        assert torch.allclose(init_logits[0, 0], full_logits[0, -1], atol=1e-6)
+
+
+class TestOnnxDecoderStepForExport:
+    def test_output_shapes(self):
+        cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
+        model = build_model(cfg, encoder_pretrained=False)
+        model.eval()
+        step = OnnxDecoderStepForExport(model)
+        step.eval()
+        head_dim = cfg.d_model // cfg.n_heads
+        dummy_ids = torch.ones(1, 1, dtype=torch.long)
+        past_self_k = torch.randn(cfg.n_layers, 1, cfg.n_heads, 3, head_dim)
+        past_self_v = torch.randn(cfg.n_layers, 1, cfg.n_heads, 3, head_dim)
+        past_cross_k = torch.randn(cfg.n_layers, 1, cfg.n_heads, 64, head_dim)
+        past_cross_v = torch.randn(cfg.n_layers, 1, cfg.n_heads, 64, head_dim)
+        dummy_mask = torch.ones(1, 64)
+        with torch.inference_mode():
+            logits, sk, sv, ck, cv = step(
+                dummy_ids, past_self_k, past_self_v, past_cross_k, past_cross_v, dummy_mask,
+            )
+        assert logits.shape == (1, 1, cfg.vocab_size)
+        assert sk.shape == (cfg.n_layers, 1, cfg.n_heads, 4, head_dim)  # past + 1
+        assert sv.shape == sk.shape
+        assert ck.shape == past_cross_k.shape  # unchanged
+        assert cv.shape == past_cross_v.shape
+
+    def test_init_then_step_consistency(self):
+        """Run init → step and verify the step produces valid logits."""
+        cfg = ChantOMRConfig(encoder_pretrained=False, vocab_size=256, max_seq_len=128)
+        model = build_model(cfg, encoder_pretrained=False)
+        model.eval()
+        init = OnnxDecoderInitForExport(model)
+        step = OnnxDecoderStepForExport(model)
+        init.eval()
+        step.eval()
+
+        dummy_memory = torch.randn(1, 64, cfg.d_model)
+        dummy_mask = torch.ones(1, 64)
+        bos = torch.ones(1, 1, dtype=torch.long)
+
+        with torch.inference_mode():
+            _logits0, sk, sv, ck, cv = init(bos, dummy_memory, dummy_mask)
+            next_token = torch.tensor([[10]], dtype=torch.long)
+            logits1, sk2, sv2, ck2, cv2 = step(
+                next_token, sk, sv, ck, cv, dummy_mask,
+            )
+
+        assert logits1.shape == (1, 1, cfg.vocab_size)
+        head_dim = cfg.d_model // cfg.n_heads
+        assert sk2.shape == (cfg.n_layers, 1, cfg.n_heads, 2, head_dim)
+
+
+class TestExportOnnx:
+    def test_produces_onnx_files(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_export"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        assert (out_dir / "encoder.onnx").exists()
+        assert (out_dir / "decoder_init.onnx").exists()
+        assert (out_dir / "decoder_step.onnx").exists()
+        assert (out_dir / "manifest.json").exists()
+
+    def test_manifest_format(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_manifest"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        data = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+        assert data["format"] == "onnx"
+        assert data["d_model"] == 512
+        assert data["canvas_height"] == 128
+
+    def test_encoder_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_enc_parity"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        diff = verify_onnx_encoder_parity(
+            ckpt_path, out_dir / "encoder.onnx",
+            config_path=cfg_path, input_height=128,
+        )
+        assert diff < 2e-3
+
+    def test_decoder_init_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_init_parity"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        diff = verify_onnx_decoder_init_parity(
+            ckpt_path, out_dir / "decoder_init.onnx",
+            config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+    def test_decoder_step_parity(self, config_and_ckpt, tmp_path):
+        cfg_path, ckpt_path = config_and_ckpt
+        out_dir = tmp_path / "onnx_step_parity"
+        export_onnx(
+            ckpt_path, out_dir, config_path=cfg_path,
+            trace_height=128,
+        )
+        diff = verify_onnx_decoder_step_parity(
+            ckpt_path, out_dir / "decoder_step.onnx",
+            config_path=cfg_path,
+        )
+        assert diff < 5e-3
+
+
+# ---------------------------------------------------------------------------
+# OpenVINO export (#13b)
+# ---------------------------------------------------------------------------
 
 
 class TestExportOpenVINO:

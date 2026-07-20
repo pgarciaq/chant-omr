@@ -31,7 +31,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# OpenVINO / ONNX export (#13b). GPU RPMs: docs/DEPENDENCIES.md
+# ONNX export (#50) — portable inference on any hardware
+onnx = [
+    "onnx>=1.15",
+    "onnxruntime>=1.17",
+]
+# OpenVINO + ONNX export (#13b). GPU RPMs: docs/DEPENDENCIES.md
 export = [
     "openvino>=2024.0",
     "onnx>=1.15",

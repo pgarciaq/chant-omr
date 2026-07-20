@@ -1,6 +1,7 @@
 """Export trained models for deployment.
 
 Export targets:
+    - ONNX encoder + decoder with KV cache (#50): portable, any hardware
     - OpenVINO IR encoder (#13b) and decoder step (#41): for ghh on Intel Arc GPU/NPU
     - Safetensors: full model weights for portable distribution
 """
@@ -18,6 +19,7 @@ import torch.nn as nn
 
 from chant_omr.inference.checkpoint import load_config, load_model_from_checkpoint
 from chant_omr.model.chant_omr_model import ChantOMR, ChantOMRConfig
+from chant_omr.model.decoder import LayerCache
 
 EXPORT_CANVAS_HEIGHT = 1600
 EXPORT_CANVAS_WIDTH = 1050
@@ -91,6 +93,107 @@ class DecoderStepForExport(nn.Module):
             encoder_attention_mask=encoder_mask,
         )
         return logits[:, -1:, :]
+
+
+class OnnxDecoderInitForExport(nn.Module):
+    """First decoder step for ONNX export: computes cross-attention K/V.
+
+    Inputs:
+        input_ids        ``(1, 1)``       int64   (BOS token)
+        encoder_memory   ``(1, N, D)``    float32
+        encoder_mask     ``(1, N)``       float32 (1 = real, 0 = padding)
+
+    Outputs:
+        logits           ``(1, 1, V)``    float32
+        self_k           ``(L, 1, H, 1, head_dim)``  float32
+        self_v           ``(L, 1, H, 1, head_dim)``  float32
+        cross_k          ``(L, 1, H, N, head_dim)``  float32
+        cross_v          ``(L, 1, H, N, head_dim)``  float32
+    """
+
+    def __init__(self, model: ChantOMR) -> None:
+        super().__init__()
+        self.decoder = model.decoder
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        encoder_memory: torch.Tensor,
+        encoder_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        logits, caches = self.decoder(
+            input_ids,
+            encoder_memory,
+            encoder_attention_mask=encoder_mask,
+            use_cache=True,
+        )
+        assert caches is not None
+        self_k = torch.stack([c.self_k for c in caches])
+        self_v = torch.stack([c.self_v for c in caches])
+        cross_k = torch.stack([c.cross_k for c in caches])
+        cross_v = torch.stack([c.cross_v for c in caches])
+        return logits[:, -1:, :], self_k, self_v, cross_k, cross_v
+
+
+class OnnxDecoderStepForExport(nn.Module):
+    """Subsequent decoder steps for ONNX export: reuses cached cross-attn K/V.
+
+    Inputs:
+        input_ids        ``(1, 1)``                   int64
+        past_self_k      ``(L, 1, H, S, head_dim)``   float32
+        past_self_v      ``(L, 1, H, S, head_dim)``   float32
+        past_cross_k     ``(L, 1, H, N, head_dim)``   float32
+        past_cross_v     ``(L, 1, H, N, head_dim)``   float32
+        encoder_mask     ``(1, N)``                    float32
+
+    Outputs:
+        logits           ``(1, 1, V)``                 float32
+        self_k           ``(L, 1, H, S+1, head_dim)``  float32
+        self_v           ``(L, 1, H, S+1, head_dim)``  float32
+        cross_k          ``(L, 1, H, N, head_dim)``    float32  (pass-through)
+        cross_v          ``(L, 1, H, N, head_dim)``    float32  (pass-through)
+    """
+
+    def __init__(self, model: ChantOMR) -> None:
+        super().__init__()
+        self.decoder = model.decoder
+        self.d_model = model.config.d_model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        past_self_k: torch.Tensor,
+        past_self_v: torch.Tensor,
+        past_cross_k: torch.Tensor,
+        past_cross_v: torch.Tensor,
+        encoder_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        n_layers = past_self_k.shape[0]
+        past_key_values = [
+            LayerCache(
+                self_k=past_self_k[i],
+                self_v=past_self_v[i],
+                cross_k=past_cross_k[i],
+                cross_v=past_cross_v[i],
+            )
+            for i in range(n_layers)
+        ]
+
+        dummy_memory = past_self_k.new_zeros(1, 1, self.d_model)
+
+        logits, new_caches = self.decoder(
+            input_ids,
+            dummy_memory,
+            encoder_attention_mask=encoder_mask,
+            past_key_values=past_key_values,
+            use_cache=True,
+        )
+        assert new_caches is not None
+        new_self_k = torch.stack([c.self_k for c in new_caches])
+        new_self_v = torch.stack([c.self_v for c in new_caches])
+        new_cross_k = torch.stack([c.cross_k for c in new_caches])
+        new_cross_v = torch.stack([c.cross_v for c in new_caches])
+        return logits[:, -1:, :], new_self_k, new_self_v, new_cross_k, new_cross_v
 
 
 def _build_dummy_input(
@@ -361,6 +464,313 @@ def verify_openvino_parity(
     if max_diff > atol:
         raise AssertionError(
             f"OpenVINO parity check failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+def export_onnx(
+    checkpoint_path: Path,
+    output_dir: Path,
+    *,
+    config_path: Path | None = None,
+    input_width: int = EXPORT_CANVAS_WIDTH,
+    trace_height: int = EXPORT_CANVAS_HEIGHT,
+    trace_num_patches: int = 128,
+) -> Path:
+    """Export encoder + decoder (init + step) to ONNX format.
+
+    Produces three ONNX models with KV cache support:
+
+        encoder.onnx       pixel_values → encoder_memory
+        decoder_init.onnx   first step: input_ids + memory → logits + KV cache
+        decoder_step.onnx   subsequent steps: input_ids + KV cache → logits + KV cache
+
+    Also copies ``tokenizer.json`` and writes ``manifest.json``.
+
+    Args:
+        checkpoint_path: Lightning ``.ckpt`` checkpoint.
+        output_dir: Destination directory for ONNX files.
+        config_path: YAML config (defaults to ``configs/default.yaml``).
+        input_width: Canvas width in pixels.
+        trace_height: Height used for tracing the encoder dummy input.
+        trace_num_patches: Encoder patch count for decoder dummy inputs.
+
+    Returns:
+        Path to the output directory.
+    """
+    import shutil
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    cfg = load_config(Path(config_path or "configs/default.yaml"))
+    model_cfg = cfg.get("model", {})
+    chant_config = ChantOMRConfig.from_mapping(model_cfg)
+
+    n_layers = chant_config.n_layers
+    n_heads = chant_config.n_heads
+    head_dim = chant_config.d_model // chant_config.n_heads
+
+    # --- Encoder ---
+    enc_module = EncoderForExport(model)
+    enc_module.eval()
+    dummy_img = _build_dummy_input(height=trace_height, width=input_width)
+
+    encoder_path = output_dir / "encoder.onnx"
+    with torch.inference_mode():
+        torch.onnx.export(
+            enc_module,
+            dummy_img,
+            str(encoder_path),
+            input_names=["pixel_values"],
+            output_names=["encoder_memory"],
+            opset_version=18,
+            dynamo=False,
+            dynamic_axes={
+                "pixel_values": {2: "height"},
+                "encoder_memory": {1: "num_patches"},
+            },
+        )
+
+    # --- Decoder init (first step) ---
+    init_module = OnnxDecoderInitForExport(model)
+    init_module.eval()
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_memory = torch.randn(1, trace_num_patches, chant_config.d_model)
+    dummy_mask = torch.ones(1, trace_num_patches)
+
+    decoder_init_path = output_dir / "decoder_init.onnx"
+    with torch.inference_mode():
+        torch.onnx.export(
+            init_module,
+            (dummy_ids, dummy_memory, dummy_mask),
+            str(decoder_init_path),
+            input_names=["input_ids", "encoder_memory", "encoder_mask"],
+            output_names=["logits", "self_k", "self_v", "cross_k", "cross_v"],
+            opset_version=18,
+            dynamo=False,
+            dynamic_axes={
+                "encoder_memory": {1: "num_patches"},
+                "encoder_mask": {1: "num_patches"},
+                "cross_k": {3: "num_patches"},
+                "cross_v": {3: "num_patches"},
+            },
+        )
+
+    # --- Decoder step (subsequent steps) ---
+    step_module = OnnxDecoderStepForExport(model)
+    step_module.eval()
+
+    dummy_self_k = torch.randn(n_layers, 1, n_heads, 1, head_dim)
+    dummy_self_v = torch.randn(n_layers, 1, n_heads, 1, head_dim)
+    dummy_cross_k = torch.randn(n_layers, 1, n_heads, trace_num_patches, head_dim)
+    dummy_cross_v = torch.randn(n_layers, 1, n_heads, trace_num_patches, head_dim)
+
+    decoder_step_path = output_dir / "decoder_step.onnx"
+    with torch.inference_mode():
+        torch.onnx.export(
+            step_module,
+            (dummy_ids, dummy_self_k, dummy_self_v,
+             dummy_cross_k, dummy_cross_v, dummy_mask),
+            str(decoder_step_path),
+            input_names=[
+                "input_ids",
+                "past_self_k", "past_self_v",
+                "past_cross_k", "past_cross_v",
+                "encoder_mask",
+            ],
+            output_names=["logits", "self_k", "self_v", "cross_k", "cross_v"],
+            opset_version=18,
+            dynamo=False,
+            dynamic_axes={
+                "past_self_k": {3: "past_seq_len"},
+                "past_self_v": {3: "past_seq_len"},
+                "past_cross_k": {3: "num_patches"},
+                "past_cross_v": {3: "num_patches"},
+                "encoder_mask": {1: "num_patches"},
+                "self_k": {3: "seq_len"},
+                "self_v": {3: "seq_len"},
+                "cross_k": {3: "num_patches"},
+                "cross_v": {3: "num_patches"},
+            },
+        )
+
+    # --- Tokenizer ---
+    tok_dir = Path(cfg.get("data", {}).get("tokenizer_dir", "data/tokenizer"))
+    tok_src = tok_dir / "tokenizer.json"
+    if tok_src.exists():
+        shutil.copy2(str(tok_src), str(output_dir / "tokenizer.json"))
+
+    # --- Manifest ---
+    num_patches = (trace_height // ENCODER_OUTPUT_STRIDE) * (
+        input_width // ENCODER_OUTPUT_STRIDE
+    )
+    manifest = ExportManifest(
+        format="onnx",
+        checkpoint_path=str(Path(checkpoint_path).resolve()),
+        config=asdict(chant_config),
+        canvas_height=trace_height,
+        canvas_width=input_width,
+        encoder_stride=ENCODER_OUTPUT_STRIDE,
+        encoder_patches=num_patches,
+        d_model=chant_config.d_model,
+    )
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(asdict(manifest), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    return output_dir
+
+
+def verify_onnx_encoder_parity(
+    checkpoint_path: Path,
+    onnx_path: Path,
+    *,
+    config_path: Path | None = None,
+    input_height: int = EXPORT_CANVAS_HEIGHT,
+    input_width: int = EXPORT_CANVAS_WIDTH,
+    atol: float = 2e-3,
+) -> float:
+    """Compare PyTorch encoder with ONNX Runtime and return max abs diff."""
+    import numpy as np
+    import onnxruntime as ort
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    enc_module = EncoderForExport(model)
+    enc_module.eval()
+    dummy = _build_dummy_input(height=input_height, width=input_width)
+
+    with torch.inference_mode():
+        pt_out = enc_module(dummy)
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    ort_result = session.run(None, {"pixel_values": dummy.numpy()})
+    onnx_out = torch.from_numpy(np.array(ort_result[0]))
+
+    max_diff = float((pt_out - onnx_out).abs().max())
+    if max_diff > atol:
+        raise AssertionError(
+            f"ONNX encoder parity failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+def verify_onnx_decoder_init_parity(
+    checkpoint_path: Path,
+    onnx_path: Path,
+    *,
+    config_path: Path | None = None,
+    num_patches: int = 128,
+    atol: float = 5e-3,
+) -> float:
+    """Compare PyTorch decoder init step with ONNX Runtime."""
+    import numpy as np
+    import onnxruntime as ort
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    init_module = OnnxDecoderInitForExport(model)
+    init_module.eval()
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_memory = torch.randn(1, num_patches, model.config.d_model)
+    dummy_mask = torch.ones(1, num_patches)
+
+    with torch.inference_mode():
+        pt_outputs = init_module(dummy_ids, dummy_memory, dummy_mask)
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    ort_outputs = session.run(None, {
+        "input_ids": dummy_ids.numpy(),
+        "encoder_memory": dummy_memory.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
+    })
+
+    max_diff = 0.0
+    names = ["logits", "self_k", "self_v", "cross_k", "cross_v"]
+    for i, name in enumerate(names):
+        pt_t = pt_outputs[i]
+        ort_t = torch.from_numpy(np.array(ort_outputs[i]))
+        diff = float((pt_t - ort_t).abs().max())
+        max_diff = max(max_diff, diff)
+
+    if max_diff > atol:
+        raise AssertionError(
+            f"ONNX decoder_init parity failed: max abs diff {max_diff:.6f} > atol {atol}"
+        )
+    return max_diff
+
+
+def verify_onnx_decoder_step_parity(
+    checkpoint_path: Path,
+    onnx_path: Path,
+    *,
+    config_path: Path | None = None,
+    num_patches: int = 128,
+    past_seq_len: int = 3,
+    atol: float = 5e-3,
+) -> float:
+    """Compare PyTorch decoder step with ONNX Runtime."""
+    import numpy as np
+    import onnxruntime as ort
+
+    model, _tok, _meta = load_model_from_checkpoint(
+        checkpoint_path, config_path=config_path, device="cpu",
+    )
+
+    step_module = OnnxDecoderStepForExport(model)
+    step_module.eval()
+
+    n_layers = model.config.n_layers
+    n_heads = model.config.n_heads
+    head_dim = model.config.d_model // model.config.n_heads
+
+    dummy_ids = torch.ones(1, 1, dtype=torch.long)
+    dummy_self_k = torch.randn(n_layers, 1, n_heads, past_seq_len, head_dim)
+    dummy_self_v = torch.randn(n_layers, 1, n_heads, past_seq_len, head_dim)
+    dummy_cross_k = torch.randn(n_layers, 1, n_heads, num_patches, head_dim)
+    dummy_cross_v = torch.randn(n_layers, 1, n_heads, num_patches, head_dim)
+    dummy_mask = torch.ones(1, num_patches)
+
+    with torch.inference_mode():
+        pt_outputs = step_module(
+            dummy_ids, dummy_self_k, dummy_self_v,
+            dummy_cross_k, dummy_cross_v, dummy_mask,
+        )
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    ort_outputs = session.run(None, {
+        "input_ids": dummy_ids.numpy(),
+        "past_self_k": dummy_self_k.numpy(),
+        "past_self_v": dummy_self_v.numpy(),
+        "past_cross_k": dummy_cross_k.numpy(),
+        "past_cross_v": dummy_cross_v.numpy(),
+        "encoder_mask": dummy_mask.numpy(),
+    })
+
+    max_diff = 0.0
+    names = ["logits", "self_k", "self_v", "cross_k", "cross_v"]
+    for i, name in enumerate(names):
+        pt_t = pt_outputs[i]
+        ort_t = torch.from_numpy(np.array(ort_outputs[i]))
+        diff = float((pt_t - ort_t).abs().max())
+        max_diff = max(max_diff, diff)
+
+    if max_diff > atol:
+        raise AssertionError(
+            f"ONNX decoder_step parity failed: max abs diff {max_diff:.6f} > atol {atol}"
         )
     return max_diff
 

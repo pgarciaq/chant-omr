@@ -156,29 +156,54 @@ def predict(
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["openvino", "safetensors"]),
-    default="openvino",
+    type=click.Choice(["onnx", "openvino", "safetensors"]),
+    default="onnx",
 )
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option("--output-dir", type=click.Path(), default="models/")
-@click.option("--verify", is_flag=True, help="Run parity check after OpenVINO export")
+@click.option("--verify", is_flag=True, help="Run parity check after export")
 def export(checkpoint, fmt, config, output_dir, verify):
-    """Export encoder + decoder (OpenVINO IR) or full weights (safetensors)."""
+    """Export model to ONNX (with KV cache), OpenVINO IR, or safetensors."""
     from pathlib import Path
-
-    from chant_omr.inference.export import (
-        export_decoder_openvino,
-        export_openvino,
-        export_safetensors,
-        verify_decoder_openvino_parity,
-        verify_openvino_parity,
-    )
 
     ckpt = Path(checkpoint)
     cfg = Path(config)
     out = Path(output_dir)
 
-    if fmt == "openvino":
+    if fmt == "onnx":
+        from chant_omr.inference.export import (
+            export_onnx,
+            verify_onnx_decoder_init_parity,
+            verify_onnx_decoder_step_parity,
+            verify_onnx_encoder_parity,
+        )
+
+        result_dir = export_onnx(ckpt, out, config_path=cfg)
+        click.echo(f"ONNX models written to {result_dir}/")
+        click.echo("  encoder.onnx")
+        click.echo("  decoder_init.onnx")
+        click.echo("  decoder_step.onnx")
+        if verify:
+            enc_diff = verify_onnx_encoder_parity(
+                ckpt, result_dir / "encoder.onnx", config_path=cfg,
+            )
+            click.echo(f"Encoder parity passed (max abs diff: {enc_diff:.6e})")
+            init_diff = verify_onnx_decoder_init_parity(
+                ckpt, result_dir / "decoder_init.onnx", config_path=cfg,
+            )
+            click.echo(f"Decoder init parity passed (max abs diff: {init_diff:.6e})")
+            step_diff = verify_onnx_decoder_step_parity(
+                ckpt, result_dir / "decoder_step.onnx", config_path=cfg,
+            )
+            click.echo(f"Decoder step parity passed (max abs diff: {step_diff:.6e})")
+    elif fmt == "openvino":
+        from chant_omr.inference.export import (
+            export_decoder_openvino,
+            export_openvino,
+            verify_decoder_openvino_parity,
+            verify_openvino_parity,
+        )
+
         enc_xml = export_openvino(ckpt, out, config_path=cfg)
         click.echo(f"Encoder IR: {enc_xml}")
         dec_xml = export_decoder_openvino(ckpt, out, config_path=cfg)
@@ -192,6 +217,8 @@ def export(checkpoint, fmt, config, output_dir, verify):
             )
             click.echo(f"Decoder parity passed (max abs diff: {dec_diff:.6e})")
     elif fmt == "safetensors":
+        from chant_omr.inference.export import export_safetensors
+
         st = export_safetensors(ckpt, out, config_path=cfg)
         click.echo(f"Safetensors written to {st}")
 
