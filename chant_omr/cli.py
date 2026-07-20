@@ -58,11 +58,19 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option(
     "--device",
-    type=click.Choice(["auto", "cuda", "xpu", "cpu"]),
+    type=click.Choice(["auto", "cuda", "xpu", "cpu", "onnx"]),
     default="auto",
     show_default=True,
+    help="Inference device: auto/cuda/xpu/cpu use PyTorch; onnx uses ONNX Runtime",
 )
 @click.option("--xpu-index", type=int, default=0, show_default=True)
+@click.option(
+    "--model-dir",
+    type=click.Path(),
+    default="models/",
+    show_default=True,
+    help="ONNX model directory (only used with --device onnx)",
+)
 @click.option("--beam-width", type=int, default=None, help="Override config inference.beam_width")
 @click.option("--max-length", type=int, default=None, help="Override config inference.max_length")
 @click.option(
@@ -96,6 +104,7 @@ def predict(
     config,
     device,
     xpu_index,
+    model_dir,
     beam_width,
     max_length,
     repetition_penalty,
@@ -110,8 +119,6 @@ def predict(
 
     import yaml
 
-    from chant_omr.inference.predict import predict_gabc
-
     cfg_path = Path(config)
     with cfg_path.open(encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
@@ -124,24 +131,48 @@ def predict(
     gp_raw = infer_cfg.get("grammar_penalty", float("-inf"))
     gp = grammar_penalty if grammar_penalty is not None else float(gp_raw)
 
-    gabc = predict_gabc(
-        Path(image_path),
-        Path(checkpoint_path),
-        config_path=cfg_path,
-        device=device,
-        xpu_index=xpu_index,
-        beam_width=int(beam_width if beam_width is not None else infer_cfg.get("beam_width", 3)),
-        max_length=int(max_length if max_length is not None else infer_cfg.get("max_length", 2048)),
-        repetition_penalty=float(
-            repetition_penalty
-            if repetition_penalty is not None
-            else infer_cfg.get("repetition_penalty", 1.1)
-        ),
-        grammar_constrained=gc,
-        grammar_penalty=gp,
-        name=name,
-        dump_metrics=dump_metrics,
+    bw = int(beam_width if beam_width is not None else infer_cfg.get("beam_width", 3))
+    ml = int(max_length if max_length is not None else infer_cfg.get("max_length", 2048))
+    rp = float(
+        repetition_penalty
+        if repetition_penalty is not None
+        else infer_cfg.get("repetition_penalty", 1.1)
     )
+
+    if device == "onnx":
+        if bw > 1:
+            raise click.UsageError(
+                "Beam search is not supported with --device onnx (greedy only). "
+                "Use --beam-width 1 or a PyTorch backend for beam search."
+            )
+        from chant_omr.inference.onnx_decode import onnx_predict_gabc
+
+        gabc = onnx_predict_gabc(
+            Path(image_path),
+            Path(model_dir),
+            max_length=ml,
+            repetition_penalty=rp,
+            grammar_constrained=gc,
+            grammar_penalty=gp,
+            name=name,
+        )
+    else:
+        from chant_omr.inference.predict import predict_gabc
+
+        gabc = predict_gabc(
+            Path(image_path),
+            Path(checkpoint_path),
+            config_path=cfg_path,
+            device=device,
+            xpu_index=xpu_index,
+            beam_width=bw,
+            max_length=ml,
+            repetition_penalty=rp,
+            grammar_constrained=gc,
+            grammar_penalty=gp,
+            name=name,
+            dump_metrics=dump_metrics,
+        )
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
