@@ -26,9 +26,10 @@
       A specialist deep learning model that converts photographs of historical
       chant manuscripts&mdash;antiphonaries, graduals, hymnals&mdash;into
       machine-readable <a href="https://gregorio-project.github.io/gabc/" style="color: var(--red-staff);">GABC</a> notation.
-      Built on a ConvNeXt-V2 encoder and Transformer decoder, trained on
-      20,000 GregoBase scores with domain augmentation, and deployable via
-      ONNX Runtime or OpenVINO on any hardware.
+      Based on <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>&rsquo;s
+      proven ConvNeXt-V2 + Transformer architecture (59M params), retrained
+      from scratch on 20,000 GregoBase scores with domain augmentation for
+      square notation. Deployable via ONNX Runtime or OpenVINO on any hardware.
     </p>
     <div class="hero-buttons">
       <a href="#start" class="btn btn-primary">
@@ -88,9 +89,11 @@
   <div class="section-inner">
     <h2 class="section-title">What It Does</h2>
     <p class="section-subtitle">
-      A ~59M parameter vision-encoder-decoder model purpose-built for
-      Gregorian square notation. Not a general-purpose sheet music recognizer&mdash;a
-      specialist that understands neumes, clefs, and four-line staves.
+      A ~59M parameter vision-encoder-decoder following
+      <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>&rsquo;s
+      architecture, retrained from scratch for Gregorian square notation.
+      Not a general-purpose sheet music recognizer&mdash;a specialist that
+      understands neumes, clefs, and four-line staves.
     </p>
     <div class="features-grid">
 
@@ -167,7 +170,8 @@
   <div class="section-inner">
     <h2 class="section-title">Architecture</h2>
     <p class="section-subtitle">
-      An end-to-end vision-encoder-decoder: the image goes in, GABC tokens come out.
+      Architecture follows <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>:
+      end-to-end vision-encoder-decoder where the image goes in and GABC tokens come out.
       No separate staff detection, segmentation, or symbol classification stages.
     </p>
 
@@ -269,8 +273,10 @@
         <h3>Specialist, Not VLM</h3>
         <p>
           General vision-language models (GPT-4o, Gemini) hallucinate
-          notation and lack GABC knowledge. ChantOMR is a 59M-parameter
-          specialist&mdash;1000x smaller, 100x faster, and domain-accurate.
+          notation and lack GABC knowledge. ChantOMR uses
+          <a href="https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1" style="color: var(--red-staff);">Transcoda</a>&rsquo;s
+          59M-parameter specialist architecture&mdash;1000x smaller than a VLM,
+          100x faster, and domain-accurate.
         </p>
       </div>
 

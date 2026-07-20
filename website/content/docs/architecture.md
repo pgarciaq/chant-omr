@@ -4,9 +4,16 @@ weight: 30
 description: "Model architecture: encoder, projector, decoder, and tokenizer"
 ---
 
-ChantOMR uses a vision-encoder-decoder architecture: the image goes in,
+ChantOMR follows the [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1)
+vision-encoder-decoder architecture (~59M params), retrained from scratch
+for Gregorian square notation with GABC output. The image goes in,
 autoregressive GABC tokens come out. There are no intermediate stages
 (no staff detection, no symbol segmentation, no classification pipeline).
+
+No Transcoda weights are reused -- only the architecture design
+(ConvNeXt-V2 Tiny encoder, 8-layer Transformer decoder, BPE tokenizer).
+See [ADR-0008](https://github.com/pgarciaq/chant-omr/blob/master/docs/adr/0008-end-to-end-over-classical-omr.md)
+for the full rationale.
 
 ## Overview
 
