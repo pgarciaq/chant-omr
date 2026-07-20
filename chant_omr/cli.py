@@ -383,6 +383,39 @@ def download(output_dir, limit, sync, days, sync_limit, rate_limit, no_progress,
             )
 
 
+@main.command("collapse-nabc")
+@click.option("--gabc-dir", type=click.Path(exists=True), default="data/gregobase/")
+@click.option("--output-dir", type=click.Path(), default="data/nabc-derived/")
+@click.option("--only-if-plain-missing/--all", default=True,
+              help="Skip NABC files that already have a plain twin in the corpus")
+def collapse_nabc(gabc_dir, output_dir, only_if_plain_missing):
+    """Collapse NABC GABC files to plain GABC by stripping pipe annotations."""
+    from pathlib import Path
+
+    from chant_omr.data.gregobase import (
+        MANIFEST_FILENAME,
+        Manifest,
+        fetch_catalog,
+        make_session,
+    )
+    from chant_omr.data.nabc import collapse_nabc_corpus
+
+    gdir = Path(gabc_dir)
+    manifest = Manifest.load(gdir / MANIFEST_FILENAME)
+    session = make_session()
+    catalog, _ = fetch_catalog(session)
+
+    stats = collapse_nabc_corpus(
+        gdir, Path(output_dir), manifest, catalog,
+        only_if_plain_missing=only_if_plain_missing,
+    )
+    click.echo(
+        f"Collapsed: {stats.collapsed} | "
+        f"Skipped (has twin): {stats.skipped_has_twin} | "
+        f"Skipped (other): {stats.skipped_other}"
+    )
+
+
 @main.command()
 @click.option("--gabc-dir", type=click.Path(exists=True), default="data/gregobase/")
 @click.option("--output-dir", type=click.Path(), default="data/rendered/")
