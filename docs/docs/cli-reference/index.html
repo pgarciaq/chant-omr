@@ -108,15 +108,18 @@ notation bodies. Produces <code>tokenizer.json</code>.</p>
 <p>By default runs in dry-run mode (reports but does not delete).</p>
 <h2 id="chant-omr-predict"><code>chant-omr predict</code></h2>
 <p>Run OMR on a single image.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr predict IMAGE_PATH --checkpoint PATH <span style="color:#f92672">[</span>--device auto<span style="color:#f92672">]</span> <span style="color:#ae81ff">\
-</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>    <span style="color:#f92672">[</span>--model-dir models/<span style="color:#f92672">]</span> <span style="color:#f92672">[</span>--beam-width 3<span style="color:#f92672">]</span> <span style="color:#f92672">[</span>--max-length 8192<span style="color:#f92672">]</span> <span style="color:#ae81ff">\
-</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>    <span style="color:#f92672">[</span>--grammar-constrained<span style="color:#f92672">]</span> <span style="color:#f92672">[</span>--grammar-penalty FLOAT<span style="color:#f92672">]</span> <span style="color:#ae81ff">\
-</span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>    <span style="color:#f92672">[</span>--output FILE<span style="color:#f92672">]</span>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># Using the HuggingFace model (recommended)</span>
+</span></span><span style="display:flex;"><span>chant-omr predict IMAGE_PATH --model pgquiles/chant-omr <span style="color:#f92672">[</span>--device openvino<span style="color:#f92672">]</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Using a local checkpoint</span>
+</span></span><span style="display:flex;"><span>chant-omr predict IMAGE_PATH --checkpoint PATH <span style="color:#f92672">[</span>--device auto<span style="color:#f92672">]</span>
 </span></span></code></pre></div><p>Loads the trained model and decodes the score image into GABC notation,
 printed to stdout (or written to a file with <code>--output</code>).</p>
-<p>The <code>--device</code> flag selects the inference backend. PyTorch backends
-(<code>auto</code>, <code>cuda</code>, <code>xpu</code>, <code>cpu</code>) use the <code>.ckpt</code> checkpoint directly.
-The <code>onnx</code> and <code>openvino</code> backends use exported models from <code>--model-dir</code>.</p>
+<p>Provide either <code>--model</code> (HuggingFace repo ID, auto-downloads) or
+<code>--checkpoint</code> (local <code>.ckpt</code> file). These are mutually exclusive.</p>
+<p>With <code>--model</code>, the CLI downloads the model on first use and selects the
+appropriate format based on <code>--device</code>: OpenVINO IR for <code>openvino</code>,
+ONNX for <code>onnx</code>, or safetensors for PyTorch backends.</p>
 <table>
   <thead>
       <tr>
@@ -127,9 +130,14 @@ The <code>onnx</code> and <code>openvino</code> backends use exported models fro
   </thead>
   <tbody>
       <tr>
+          <td><code>--model</code></td>
+          <td>—</td>
+          <td>HuggingFace model repo (e.g. <code>pgquiles/chant-omr</code>); downloads automatically</td>
+      </tr>
+      <tr>
           <td><code>--checkpoint</code></td>
-          <td>required</td>
-          <td>Path to a <code>.ckpt</code> file (PyTorch backends)</td>
+          <td>—</td>
+          <td>Path to a local <code>.ckpt</code> file (mutually exclusive with <code>--model</code>)</td>
       </tr>
       <tr>
           <td><code>--device</code></td>
@@ -138,8 +146,8 @@ The <code>onnx</code> and <code>openvino</code> backends use exported models fro
       </tr>
       <tr>
           <td><code>--model-dir</code></td>
-          <td><code>models/</code></td>
-          <td>Exported model directory (used with <code>--device onnx</code> or <code>openvino</code>)</td>
+          <td>auto</td>
+          <td>Exported model directory (overrides <code>--model</code> subfolder for onnx/openvino)</td>
       </tr>
       <tr>
           <td><code>--beam-width</code></td>
@@ -325,7 +333,44 @@ are configured correctly.</p>
 <h2 id="chant-omr-train"><code>chant-omr train</code></h2>
 <p>Train the OMR model (alternative to <code>python scripts/train.py</code>).</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr train <span style="color:#f92672">[</span>--config configs/default.yaml<span style="color:#f92672">]</span> <span style="color:#f92672">[</span>--accelerator cuda<span style="color:#f92672">]</span>
-</span></span></code></pre></div><h2 id="chant-omr-manifest"><code>chant-omr manifest</code></h2>
+</span></span></code></pre></div><h2 id="chant-omr-upload"><code>chant-omr upload</code></h2>
+<p>Upload model to HuggingFace Hub.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr upload CHECKPOINT --repo-id pgquiles/chant-omr <span style="color:#f92672">[</span>--config configs/default.yaml<span style="color:#f92672">]</span> <span style="color:#f92672">[</span>--private<span style="color:#f92672">]</span>
+</span></span></code></pre></div><p>Exports the checkpoint in all formats (safetensors, OpenVINO IR, ONNX),
+generates a model card, and uploads everything to HuggingFace Hub.
+Requires prior authentication via <code>hf auth login</code>.</p>
+<table>
+  <thead>
+      <tr>
+          <th>Flag</th>
+          <th>Default</th>
+          <th>Description</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>CHECKPOINT</code></td>
+          <td>required</td>
+          <td>Path to a <code>.ckpt</code> file (positional argument)</td>
+      </tr>
+      <tr>
+          <td><code>--repo-id</code></td>
+          <td>required</td>
+          <td>HuggingFace repo (e.g. <code>pgquiles/chant-omr</code>)</td>
+      </tr>
+      <tr>
+          <td><code>--config</code></td>
+          <td><code>configs/default.yaml</code></td>
+          <td>Model configuration file</td>
+      </tr>
+      <tr>
+          <td><code>--private</code></td>
+          <td>off</td>
+          <td>Create a private repository</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="chant-omr-manifest"><code>chant-omr manifest</code></h2>
 <p>Manifest management commands for tracking dataset state.</p>
 
   </main>

@@ -88,7 +88,36 @@ supported.</p>
 </span></span><span style="display:flex;"><span>pip install -e <span style="color:#e6db74">&#34;.[dev]&#34;</span>
 </span></span></code></pre></div><p>For OpenVINO export support, install the <code>export</code> extra:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>pip install -e <span style="color:#e6db74">&#34;.[dev,export]&#34;</span>
-</span></span></code></pre></div><h2 id="preparing-the-training-data">Preparing the Training Data</h2>
+</span></span></code></pre></div><h2 id="using-the-pre-trained-model">Using the Pre-Trained Model</h2>
+<p>The fastest way to get started is with the pre-trained model from
+<a href="https://huggingface.co/pgquiles/chant-omr">HuggingFace</a>. No training
+needed &ndash; just install and run:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>pip install chant-omr
+</span></span><span style="display:flex;"><span>chant-omr predict score.png --model pgquiles/chant-omr
+</span></span></code></pre></div><p>The model is downloaded automatically on first use and cached locally.
+Choose a backend with <code>--device</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># OpenVINO (Intel Arc GPUs/NPUs)</span>
+</span></span><span style="display:flex;"><span>chant-omr predict score.png --model pgquiles/chant-omr --device openvino
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># ONNX Runtime (any hardware)</span>
+</span></span><span style="display:flex;"><span>chant-omr predict score.png --model pgquiles/chant-omr --device onnx
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># PyTorch (auto-selects CUDA &gt; XPU &gt; CPU)</span>
+</span></span><span style="display:flex;"><span>chant-omr predict score.png --model pgquiles/chant-omr --device auto
+</span></span></code></pre></div><p>The HuggingFace repository contains safetensors weights, OpenVINO IR,
+and ONNX models. The CLI automatically selects the right format based
+on <code>--device</code>.</p>
+<h3 id="from-python">From Python</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f92672">from</span> chant_omr.hub <span style="color:#f92672">import</span> download_from_hub
+</span></span><span style="display:flex;"><span><span style="color:#f92672">from</span> chant_omr.inference.ov_decode <span style="color:#f92672">import</span> load_openvino_models, ov_predict_gabc
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>model_dir <span style="color:#f92672">=</span> download_from_hub(<span style="color:#e6db74">&#34;pgquiles/chant-omr&#34;</span>)
+</span></span><span style="display:flex;"><span>gabc <span style="color:#f92672">=</span> ov_predict_gabc(<span style="color:#e6db74">&#34;score.png&#34;</span>, model_dir <span style="color:#f92672">/</span> <span style="color:#e6db74">&#34;openvino&#34;</span>, beam_width<span style="color:#f92672">=</span><span style="color:#ae81ff">3</span>)
+</span></span><span style="display:flex;"><span>print(gabc)
+</span></span></code></pre></div><h2 id="training-from-scratch">Training from Scratch</h2>
+<p>The following sections describe how to prepare data and train your own
+model. Skip this if you only need inference with the pre-trained model.</p>
+<h2 id="preparing-the-training-data">Preparing the Training Data</h2>
 <p>The training pipeline has three stages, each a CLI command:</p>
 <h3 id="1-download-the-gabc-corpus">1. Download the GABC corpus</h3>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr download
@@ -127,10 +156,12 @@ for step-by-step instructions with QuickPod, Vast.ai, or Lambda Labs.</p>
 </span></span></span><span style="display:flex;"><span><span style="color:#ae81ff"></span>  --batch-size <span style="color:#ae81ff">2</span>
 </span></span></code></pre></div><p>Loss should decrease rapidly on 10 overfitted samples.</p>
 <h2 id="inference">Inference</h2>
-<p>Run OMR on a single image:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr predict manuscript_page.png
-</span></span></code></pre></div><p>This loads the trained model (from <code>checkpoints/</code>) and outputs GABC notation
-to stdout.</p>
+<p>Run OMR on a single image using the HuggingFace model:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr predict manuscript_page.png --model pgquiles/chant-omr
+</span></span></code></pre></div><p>Or using a local checkpoint:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr predict manuscript_page.png --checkpoint checkpoints/best.ckpt
+</span></span></code></pre></div><p>Both output GABC notation to stdout. Use <code>--output file.gabc</code> to write
+to a file instead.</p>
 <h2 id="evaluation">Evaluation</h2>
 <p>Evaluate the model on a benchmark set of (image, GABC) pairs:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>chant-omr evaluate --checkpoint checkpoints/best.ckpt --benchmark-dir benchmarks/

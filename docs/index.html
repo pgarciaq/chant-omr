@@ -49,8 +49,11 @@
       <a href="#start" class="btn btn-primary">
         Get Started
       </a>
+      <a href="https://huggingface.co/pgquiles/chant-omr" class="btn btn-secondary" target="_blank">
+        HuggingFace
+      </a>
       <a href="https://github.com/pgarciaq/chant-omr" class="btn btn-secondary" target="_blank">
-        View on GitHub
+        GitHub
       </a>
     </div>
     <div class="hero-image">
@@ -397,54 +400,53 @@
   <div class="section-inner">
     <h2 class="section-title">Getting Started</h2>
     <p class="section-subtitle">
-      Two paths: use the trained model for inference, or train from scratch.
+      Use the pre-trained model from HuggingFace, or train from scratch on your own data.
     </p>
     <div class="getting-started-content">
       <ul class="install-steps">
         <li>
           <div>
-            <strong>Clone and install</strong><br>
-            <code>git clone https://github.com/pgarciaq/chant-omr.git</code><br>
-            <code>pip install -e ".[dev]"</code>
+            <strong>Install chant-omr</strong><br>
+            <code>pip install chant-omr</code>
           </div>
         </li>
         <li>
           <div>
-            <strong>Download the training corpus</strong><br>
-            <code>chant-omr download</code> fetches ~10,000 GABC files from
-            GregoBase (CC0). <code>chant-omr render</code> generates paired PNGs.
+            <strong>Run inference with the HuggingFace model</strong><br>
+            <code>chant-omr predict score.png --model pgquiles/chant-omr</code>
+            downloads the model automatically and outputs GABC notation.
           </div>
         </li>
         <li>
           <div>
-            <strong>Train the model</strong><br>
-            <code>python scripts/train.py --accelerator cuda</code> on a cloud
-            GPU (RTX 5080 at $0.16/hr, ~24h, ~$4 total). See the
-            <a href="/chant-omr/docs/training-guide/" style="color: var(--red-staff);">Training Guide</a>.
+            <strong>Choose your backend</strong><br>
+            Add <code>--device openvino</code> for Intel Arc GPUs,
+            <code>--device onnx</code> for any hardware, or leave as
+            <code>auto</code> for PyTorch (CUDA/XPU/CPU).
           </div>
         </li>
         <li>
           <div>
-            <strong>Run inference</strong><br>
-            <code>chant-omr predict manuscript_page.png</code> decodes
-            a score image into GABC notation.
+            <strong>Or train from scratch</strong><br>
+            <code>chant-omr download</code> + <code>chant-omr render</code> +
+            <code>python scripts/train.py --accelerator cuda</code>.
+            See the <a href="/chant-omr/docs/training-guide/" style="color: var(--red-staff);">Training Guide</a>.
           </div>
         </li>
       </ul>
       <div class="code-block">
-        <span class="comment"># Clone the repository</span><br>
+        <span class="comment"># Install and run with the pre-trained model</span><br>
+        <span class="prompt">$</span> <span class="command">pip install chant-omr</span><br>
+        <span class="prompt">$</span> <span class="command">chant-omr predict score.png --model pgquiles/chant-omr</span><br>
+        <br>
+        <span class="comment"># Or with a specific backend</span><br>
+        <span class="prompt">$</span> <span class="command">chant-omr predict score.png --model pgquiles/chant-omr --device openvino</span><br>
+        <br>
+        <span class="comment"># Or train from scratch</span><br>
         <span class="prompt">$</span> <span class="command">git clone https://github.com/pgarciaq/chant-omr.git</span><br>
         <span class="prompt">$</span> <span class="command">cd chant-omr &amp;&amp; pip install -e ".[dev]"</span><br>
-        <br>
-        <span class="comment"># Download and render the training corpus</span><br>
-        <span class="prompt">$</span> <span class="command">chant-omr download</span><br>
-        <span class="prompt">$</span> <span class="command">chant-omr render</span><br>
-        <br>
-        <span class="comment"># Train on a CUDA GPU</span><br>
-        <span class="prompt">$</span> <span class="command">python scripts/train.py --accelerator cuda --precision bf16-mixed</span><br>
-        <br>
-        <span class="comment"># Run inference on a score image</span><br>
-        <span class="prompt">$</span> <span class="command">chant-omr predict manuscript_page.png</span>
+        <span class="prompt">$</span> <span class="command">chant-omr download &amp;&amp; chant-omr render</span><br>
+        <span class="prompt">$</span> <span class="command">python scripts/train.py --accelerator cuda --precision bf16-mixed</span>
       </div>
     </div>
   </div>
@@ -492,6 +494,7 @@
   </p>
   <div class="footer-links">
     <a href="https://github.com/pgarciaq/chant-omr" target="_blank">GitHub</a>
+    <a href="https://huggingface.co/pgquiles/chant-omr" target="_blank">HuggingFace</a>
     <a href="https://pgarciaq.github.io/ghh/" target="_blank">Guido's Helping Hand</a>
     <a href="/chant-omr/docs/">Documentation</a>
     <a href="#top">Back to top</a>

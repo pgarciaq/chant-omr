@@ -110,3 +110,71 @@ def predict_gabc(
     )
     body = tokenizer.decode(token_ids, skip_special_tokens=True)
     return assemble_gabc(body, name=name or "OMR output")
+
+
+def predict_gabc_from_hub(
+    image_path: Path,
+    model_dir: Path,
+    *,
+    device: str = "auto",
+    xpu_index: int = 0,
+    beam_width: int = 3,
+    max_length: int | None = None,
+    repetition_penalty: float = 1.1,
+    grammar_constrained: bool = False,
+    grammar_penalty: float = float("-inf"),
+    name: str | None = None,
+    dump_metrics: bool = False,
+    reference_gabc_path: Path | None = None,
+) -> str:
+    """Run OMR using a HuggingFace Hub model (safetensors weights).
+
+    *model_dir* is the local cache path returned by
+    :func:`chant_omr.hub.download_from_hub`, containing ``model.safetensors``,
+    ``config.yaml``, and ``tokenizer.json``.
+    """
+    from chant_omr.inference.checkpoint import load_model_from_safetensors
+
+    torch_device = resolve_inference_device(device, xpu_index=xpu_index)
+    effective = _effective_device_name(torch_device)
+    print(
+        format_training_device_message(
+            effective=effective,
+            xpu_index=xpu_index,
+            cuda_devices=1,
+        )
+    )
+
+    model, tokenizer, _meta = load_model_from_safetensors(
+        model_dir,
+        device=torch_device,
+    )
+    resolved_max_length = max_length if max_length is not None else model.config.max_seq_len
+    pixel_values = prepare_inference_tensor(image_path, device=torch_device)
+    decode_config = DecodeConfig(
+        beam_width=beam_width,
+        max_length=resolved_max_length,
+        repetition_penalty=repetition_penalty,
+        grammar_constrained=grammar_constrained,
+        grammar_penalty=grammar_penalty,
+    )
+    ref_gabc = reference_gabc_path
+    if dump_metrics and ref_gabc is None:
+        ref_gabc = resolve_reference_gabc(image_path)
+    if dump_metrics:
+        _, metrics = compute_predict_metrics(
+            model,
+            pixel_values,
+            tokenizer,
+            decode_config=decode_config,
+            reference_gabc_path=ref_gabc,
+        )
+        print(format_predict_metrics(metrics))
+    token_ids = decode_token_ids(
+        model,
+        pixel_values,
+        tokenizer,
+        decode_config,
+    )
+    body = tokenizer.decode(token_ids, skip_special_tokens=True)
+    return assemble_gabc(body, name=name or "OMR output")

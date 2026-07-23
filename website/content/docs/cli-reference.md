@@ -61,24 +61,29 @@ By default runs in dry-run mode (reports but does not delete).
 Run OMR on a single image.
 
 ```bash
-chant-omr predict IMAGE_PATH --checkpoint PATH [--device auto] \
-    [--model-dir models/] [--beam-width 3] [--max-length 8192] \
-    [--grammar-constrained] [--grammar-penalty FLOAT] \
-    [--output FILE]
+# Using the HuggingFace model (recommended)
+chant-omr predict IMAGE_PATH --model pgquiles/chant-omr [--device openvino]
+
+# Using a local checkpoint
+chant-omr predict IMAGE_PATH --checkpoint PATH [--device auto]
 ```
 
 Loads the trained model and decodes the score image into GABC notation,
 printed to stdout (or written to a file with `--output`).
 
-The `--device` flag selects the inference backend. PyTorch backends
-(`auto`, `cuda`, `xpu`, `cpu`) use the `.ckpt` checkpoint directly.
-The `onnx` and `openvino` backends use exported models from `--model-dir`.
+Provide either `--model` (HuggingFace repo ID, auto-downloads) or
+`--checkpoint` (local `.ckpt` file). These are mutually exclusive.
+
+With `--model`, the CLI downloads the model on first use and selects the
+appropriate format based on `--device`: OpenVINO IR for `openvino`,
+ONNX for `onnx`, or safetensors for PyTorch backends.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--checkpoint` | required | Path to a `.ckpt` file (PyTorch backends) |
+| `--model` | &mdash; | HuggingFace model repo (e.g. `pgquiles/chant-omr`); downloads automatically |
+| `--checkpoint` | &mdash; | Path to a local `.ckpt` file (mutually exclusive with `--model`) |
 | `--device` | `auto` | Inference backend: `auto`/`cuda`/`xpu`/`cpu` (PyTorch), `onnx`, or `openvino` |
-| `--model-dir` | `models/` | Exported model directory (used with `--device onnx` or `openvino`) |
+| `--model-dir` | auto | Exported model directory (overrides `--model` subfolder for onnx/openvino) |
 | `--beam-width` | from config | Beam search width (1 = greedy) |
 | `--max-length` | from config | Maximum decoder sequence length |
 | `--repetition-penalty` | from config | Repetition penalty for autoregressive decoding |
@@ -160,6 +165,25 @@ Train the OMR model (alternative to `python scripts/train.py`).
 ```bash
 chant-omr train [--config configs/default.yaml] [--accelerator cuda]
 ```
+
+## `chant-omr upload`
+
+Upload model to HuggingFace Hub.
+
+```bash
+chant-omr upload CHECKPOINT --repo-id pgquiles/chant-omr [--config configs/default.yaml] [--private]
+```
+
+Exports the checkpoint in all formats (safetensors, OpenVINO IR, ONNX),
+generates a model card, and uploads everything to HuggingFace Hub.
+Requires prior authentication via `hf auth login`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `CHECKPOINT` | required | Path to a `.ckpt` file (positional argument) |
+| `--repo-id` | required | HuggingFace repo (e.g. `pgquiles/chant-omr`) |
+| `--config` | `configs/default.yaml` | Model configuration file |
+| `--private` | off | Create a private repository |
 
 ## `chant-omr manifest`
 

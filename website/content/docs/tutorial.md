@@ -23,6 +23,51 @@ For OpenVINO export support, install the `export` extra:
 pip install -e ".[dev,export]"
 ```
 
+## Using the Pre-Trained Model
+
+The fastest way to get started is with the pre-trained model from
+[HuggingFace](https://huggingface.co/pgquiles/chant-omr). No training
+needed -- just install and run:
+
+```bash
+pip install chant-omr
+chant-omr predict score.png --model pgquiles/chant-omr
+```
+
+The model is downloaded automatically on first use and cached locally.
+Choose a backend with `--device`:
+
+```bash
+# OpenVINO (Intel Arc GPUs/NPUs)
+chant-omr predict score.png --model pgquiles/chant-omr --device openvino
+
+# ONNX Runtime (any hardware)
+chant-omr predict score.png --model pgquiles/chant-omr --device onnx
+
+# PyTorch (auto-selects CUDA > XPU > CPU)
+chant-omr predict score.png --model pgquiles/chant-omr --device auto
+```
+
+The HuggingFace repository contains safetensors weights, OpenVINO IR,
+and ONNX models. The CLI automatically selects the right format based
+on `--device`.
+
+### From Python
+
+```python
+from chant_omr.hub import download_from_hub
+from chant_omr.inference.ov_decode import load_openvino_models, ov_predict_gabc
+
+model_dir = download_from_hub("pgquiles/chant-omr")
+gabc = ov_predict_gabc("score.png", model_dir / "openvino", beam_width=3)
+print(gabc)
+```
+
+## Training from Scratch
+
+The following sections describe how to prepare data and train your own
+model. Skip this if you only need inference with the pre-trained model.
+
 ## Preparing the Training Data
 
 The training pipeline has three stages, each a CLI command:
@@ -97,14 +142,20 @@ Loss should decrease rapidly on 10 overfitted samples.
 
 ## Inference
 
-Run OMR on a single image:
+Run OMR on a single image using the HuggingFace model:
 
 ```bash
-chant-omr predict manuscript_page.png
+chant-omr predict manuscript_page.png --model pgquiles/chant-omr
 ```
 
-This loads the trained model (from `checkpoints/`) and outputs GABC notation
-to stdout.
+Or using a local checkpoint:
+
+```bash
+chant-omr predict manuscript_page.png --checkpoint checkpoints/best.ckpt
+```
+
+Both output GABC notation to stdout. Use `--output file.gabc` to write
+to a file instead.
 
 ## Evaluation
 

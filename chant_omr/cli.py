@@ -52,8 +52,15 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
     "--checkpoint",
     "checkpoint_path",
     type=click.Path(exists=True),
-    required=True,
-    help="Lightning .ckpt checkpoint path",
+    default=None,
+    help="Lightning .ckpt checkpoint path (mutually exclusive with --model)",
+)
+@click.option(
+    "--model",
+    "hub_model",
+    type=str,
+    default=None,
+    help="HuggingFace model repo (e.g. pgquiles/chant-omr); downloads automatically",
 )
 @click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
 @click.option(
@@ -67,9 +74,8 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 @click.option(
     "--model-dir",
     type=click.Path(),
-    default="models/",
-    show_default=True,
-    help="Exported model directory (used with --device onnx or openvino)",
+    default=None,
+    help="Exported model directory (--device onnx/openvino; overrides --model subfolder)",
 )
 @click.option("--beam-width", type=int, default=None, help="Override config inference.beam_width")
 @click.option("--max-length", type=int, default=None, help="Override config inference.max_length")
@@ -101,6 +107,7 @@ def train(config, resume, gpus, accelerator, xpu_index, epochs, batch_size, prec
 def predict(
     image_path,
     checkpoint_path,
+    hub_model,
     config,
     device,
     xpu_index,
@@ -114,12 +121,32 @@ def predict(
     grammar_constrained,
     grammar_penalty,
 ):
-    """Run OMR on a single image and output GABC."""
+    """Run OMR on a single image and output GABC.
+
+    Provide either --checkpoint (local .ckpt) or --model (HuggingFace repo).
+    With --model, the appropriate format is selected based on --device.
+    """
     from pathlib import Path
 
     import yaml
 
+    if checkpoint_path and hub_model:
+        raise click.UsageError("Use --checkpoint or --model, not both.")
+    if not checkpoint_path and not hub_model:
+        raise click.UsageError("Provide either --checkpoint or --model.")
+
+    hub_dir: Path | None = None
+    if hub_model:
+        from chant_omr.hub import download_from_hub
+
+        click.echo(f"Downloading {hub_model} from HuggingFace Hub ...", err=True)
+        hub_dir = download_from_hub(hub_model)
+        click.echo(f"Model cached at {hub_dir}", err=True)
+
     cfg_path = Path(config)
+    if hub_dir and (hub_dir / "config.yaml").is_file():
+        cfg_path = hub_dir / "config.yaml"
+
     with cfg_path.open(encoding="utf-8") as fh:
         cfg = yaml.safe_load(fh) or {}
     infer_cfg = cfg.get("inference", {})
@@ -142,9 +169,12 @@ def predict(
     if device == "onnx":
         from chant_omr.inference.onnx_decode import onnx_predict_gabc
 
+        effective_model_dir = Path(model_dir) if model_dir else (
+            hub_dir / "onnx" if hub_dir else Path("models/")
+        )
         gabc = onnx_predict_gabc(
             Path(image_path),
-            Path(model_dir),
+            effective_model_dir,
             beam_width=bw,
             max_length=ml,
             repetition_penalty=rp,
@@ -155,9 +185,12 @@ def predict(
     elif device == "openvino":
         from chant_omr.inference.ov_decode import ov_predict_gabc
 
+        effective_model_dir = Path(model_dir) if model_dir else (
+            hub_dir / "openvino" if hub_dir else Path("models/")
+        )
         gabc = ov_predict_gabc(
             Path(image_path),
-            Path(model_dir),
+            effective_model_dir,
             beam_width=bw,
             max_length=ml,
             repetition_penalty=rp,
@@ -166,22 +199,39 @@ def predict(
             name=name,
         )
     else:
-        from chant_omr.inference.predict import predict_gabc
+        if hub_dir and not checkpoint_path:
+            from chant_omr.inference.predict import predict_gabc_from_hub
 
-        gabc = predict_gabc(
-            Path(image_path),
-            Path(checkpoint_path),
-            config_path=cfg_path,
-            device=device,
-            xpu_index=xpu_index,
-            beam_width=bw,
-            max_length=ml,
-            repetition_penalty=rp,
-            grammar_constrained=gc,
-            grammar_penalty=gp,
-            name=name,
-            dump_metrics=dump_metrics,
-        )
+            gabc = predict_gabc_from_hub(
+                Path(image_path),
+                hub_dir,
+                device=device,
+                xpu_index=xpu_index,
+                beam_width=bw,
+                max_length=ml,
+                repetition_penalty=rp,
+                grammar_constrained=gc,
+                grammar_penalty=gp,
+                name=name,
+                dump_metrics=dump_metrics,
+            )
+        else:
+            from chant_omr.inference.predict import predict_gabc
+
+            gabc = predict_gabc(
+                Path(image_path),
+                Path(checkpoint_path),
+                config_path=cfg_path,
+                device=device,
+                xpu_index=xpu_index,
+                beam_width=bw,
+                max_length=ml,
+                repetition_penalty=rp,
+                grammar_constrained=gc,
+                grammar_penalty=gp,
+                name=name,
+                dump_metrics=dump_metrics,
+            )
     if output:
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,6 +333,30 @@ def export(checkpoint, fmt, config, output_dir, verify):
 
         st = export_safetensors(ckpt, out, config_path=cfg)
         click.echo(f"Safetensors written to {st}")
+
+
+@main.command()
+@click.argument("checkpoint", type=click.Path(exists=True))
+@click.option("--repo-id", required=True, help="HuggingFace repo (e.g. pgquiles/chant-omr)")
+@click.option("--config", type=click.Path(exists=True), default="configs/default.yaml")
+@click.option("--private", is_flag=True, help="Create a private HuggingFace repo")
+def upload(checkpoint, repo_id, config, private):
+    """Upload model to HuggingFace Hub (safetensors + OpenVINO IR + ONNX).
+
+    Requires prior authentication via ``huggingface-cli login``.
+    """
+    from pathlib import Path
+
+    from chant_omr.hub import upload_to_hub
+
+    click.echo(f"Exporting and uploading to {repo_id} ...")
+    url = upload_to_hub(
+        Path(checkpoint),
+        repo_id,
+        config_path=Path(config),
+        private=private,
+    )
+    click.echo(f"Done: {url}")
 
 
 @main.command()

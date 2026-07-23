@@ -1,4 +1,4 @@
-"""Load trained ChantOMR weights from Lightning checkpoints."""
+"""Load trained ChantOMR weights from Lightning checkpoints and safetensors."""
 
 from __future__ import annotations
 
@@ -74,5 +74,51 @@ def load_model_from_checkpoint(
         "checkpoint_path": str(checkpoint_path.resolve()),
         "config_path": str(cfg_path.resolve()),
         "tokenizer_dir": str(tok_dir.resolve()),
+    }
+    return model, tokenizer, meta
+
+
+def load_model_from_safetensors(
+    model_dir: Path,
+    *,
+    device: torch.device | str | None = None,
+) -> tuple[ChantOMR, GABCTokenizer, dict[str, Any]]:
+    """Rebuild ``ChantOMR`` + tokenizer from a HuggingFace Hub download.
+
+    Expects *model_dir* to contain ``model.safetensors``, ``config.yaml``,
+    and ``tokenizer.json`` (the layout produced by :func:`chant_omr.hub.upload_to_hub`).
+    """
+    from safetensors.torch import load_file
+
+    model_dir = Path(model_dir)
+
+    cfg_path = model_dir / "config.yaml"
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"config.yaml not found in {model_dir}")
+    cfg = load_config(cfg_path)
+    model_cfg = dict(cfg.get("model", {}))
+    model_cfg.setdefault("encoder_pretrained", False)
+
+    chant_config = ChantOMRConfig.from_mapping(model_cfg)
+    model = build_model(chant_config, encoder_pretrained=False)
+
+    st_path = model_dir / "model.safetensors"
+    if not st_path.is_file():
+        raise FileNotFoundError(f"model.safetensors not found in {model_dir}")
+    state_dict = load_file(str(st_path), device="cpu")
+    model.load_state_dict(state_dict, strict=True)
+
+    tok_path = model_dir / TOKENIZER_FILENAME
+    if not tok_path.is_file():
+        raise FileNotFoundError(f"{TOKENIZER_FILENAME} not found in {model_dir}")
+    tokenizer = GABCTokenizer.load(tok_path)
+
+    if device is not None:
+        model = model.to(device)
+    model.eval()
+
+    meta = {
+        "model_dir": str(model_dir.resolve()),
+        "config_path": str(cfg_path.resolve()),
     }
     return model, tokenizer, meta
